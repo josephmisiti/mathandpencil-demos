@@ -18,4 +18,6 @@ export type MarkerInfoProps = {
 
 export type AddressSearchProps = {
   onLocationSelect: (location: Location) => void;
+  onAddressClear?: () => void;
+  initialAddress?: string;
 }

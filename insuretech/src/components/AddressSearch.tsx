@@ -1,12 +1,20 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import PlacesAutocomplete, {
   geocodeByAddress,
   getLatLng,
 } from 'react-places-autocomplete';
 import { AddressSearchProps, Location } from '../types/location';
 
-export default function AddressSearch({ onLocationSelect }: AddressSearchProps) {
-  const [address, setAddress] = useState('');
+export default function AddressSearch({ 
+  onLocationSelect, 
+  onAddressClear, 
+  initialAddress = '' 
+}: AddressSearchProps) {
+  const [address, setAddress] = useState(initialAddress);
+
+  useEffect(() => {
+    setAddress(initialAddress);
+  }, [initialAddress]);
 
   const handleSelect = async (selectedAddress: string) => {
     try {
@@ -27,22 +35,47 @@ export default function AddressSearch({ onLocationSelect }: AddressSearchProps) 
     }
   };
 
+  const handleAddressChange = (value: string) => {
+    setAddress(value);
+    if (value === '' && onAddressClear) {
+      onAddressClear();
+    }
+  };
+
+  const handleClear = () => {
+    setAddress('');
+    if (onAddressClear) {
+      onAddressClear();
+    }
+  };
+
   return (
     <div className="w-full max-w-lg">
       <PlacesAutocomplete
         value={address}
-        onChange={setAddress}
+        onChange={handleAddressChange}
         onSelect={handleSelect}
       >
         {({ getInputProps, suggestions, getSuggestionItemProps, loading }) => (
           <div className="relative">
-            <input
-              {...getInputProps({
-                placeholder: 'Search for an address...',
-                className:
-                  'w-full px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent',
-              })}
-            />
+            <div className="relative">
+              <input
+                {...getInputProps({
+                  placeholder: 'Search for an address...',
+                  className:
+                    'w-full px-4 py-2 pr-10 text-gray-700 bg-white border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent',
+                })}
+              />
+              {address && (
+                <button
+                  onClick={handleClear}
+                  className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                  type="button"
+                >
+                  ×
+                </button>
+              )}
+            </div>
             {(loading || suggestions.length > 0) && (
               <div className="absolute z-10 w-full bg-white border border-gray-300 rounded-lg shadow-lg mt-1 max-h-60 overflow-y-auto">
                 {loading && (
