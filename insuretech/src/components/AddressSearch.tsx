@@ -43,27 +43,29 @@ export default function AddressSearch({ onLocationSelect }: AddressSearchProps) 
                   'w-full px-4 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent',
               })}
             />
-            <div className="absolute z-10 w-full bg-white border border-gray-300 rounded-lg shadow-lg mt-1 max-h-60 overflow-y-auto">
-              {loading && (
-                <div className="px-4 py-2 text-gray-500">Loading...</div>
-              )}
-              {suggestions.map((suggestion) => {
-                const className = suggestion.active
-                  ? 'px-4 py-2 bg-blue-100 cursor-pointer hover:bg-blue-200'
-                  : 'px-4 py-2 cursor-pointer hover:bg-gray-100';
+            {(loading || suggestions.length > 0) && (
+              <div className="absolute z-10 w-full bg-white border border-gray-300 rounded-lg shadow-lg mt-1 max-h-60 overflow-y-auto">
+                {loading && (
+                  <div className="px-4 py-2 text-gray-500">Loading...</div>
+                )}
+                {suggestions.map((suggestion) => {
+                  const className = suggestion.active
+                    ? 'px-4 py-2 bg-blue-100 cursor-pointer hover:bg-blue-200'
+                    : 'px-4 py-2 cursor-pointer hover:bg-gray-100';
 
-                return (
-                  <div
-                    {...getSuggestionItemProps(suggestion, {
-                      className,
-                    })}
-                    key={suggestion.placeId}
-                  >
-                    <span>{suggestion.description}</span>
-                  </div>
-                );
-              })}
-            </div>
+                  return (
+                    <div
+                      {...getSuggestionItemProps(suggestion, {
+                        className,
+                      })}
+                      key={suggestion.placeId}
+                    >
+                      <span>{suggestion.description}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
       </PlacesAutocomplete>

@@ -9,8 +9,8 @@ export default function MapView({ center, markers, zoom = 12 }: MapProps) {
   return (
     <div className="w-screen h-screen">
       <Map
-        zoom={zoom}
-        center={center}
+        defaultZoom={zoom}
+        defaultCenter={center}
         gestureHandling={'greedy'}
         disableDefaultUI={false}
         mapTypeControlOptions={{
