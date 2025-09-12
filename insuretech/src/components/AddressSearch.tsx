@@ -50,7 +50,7 @@ export default function AddressSearch({
   };
 
   return (
-    <div className="w-full max-w-lg">
+    <div className="w-full max-w-xl">
       <PlacesAutocomplete
         value={address}
         onChange={handleAddressChange}
