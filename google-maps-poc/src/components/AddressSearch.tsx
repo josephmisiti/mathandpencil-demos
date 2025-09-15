@@ -27,7 +27,7 @@ const AddressSearch: React.FC<Props> = ({onSelect}) => {
         suggestions,
         getSuggestionItemProps,
         loading,
-      }: any) => (
+      }) => (
         <div className="w-full max-w-md mx-auto relative">
           <input
             {...getInputProps({
@@ -38,9 +38,8 @@ const AddressSearch: React.FC<Props> = ({onSelect}) => {
           {suggestions.length > 0 && (
             <div className="absolute z-10 w-full bg-white border rounded shadow mt-1">
               {loading && <div className="p-2">Loading...</div>}
-              {suggestions.map((s: any) => (
+              {suggestions.map((s) => (
                 <div
-                  key={s.placeId}
                   {...getSuggestionItemProps(s, {
                     className: 'p-2 cursor-pointer hover:bg-gray-100'
                   })}
