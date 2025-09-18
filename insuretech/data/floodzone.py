@@ -76,9 +76,9 @@ def stream_zip_to_storage(manifest_item: dict):
 
     os.makedirs(os.path.dirname(storage_path), exist_ok=True)
 
-    # if os.path.exists(storage_path):
-    #     logger.warning(f"SKIP: {storage_path} already exists.")
-    #     return {"fips": manifest_item["fips"], "status": "skipped"}
+    if os.path.exists(storage_path):
+        logger.warning(f"SKIP: {storage_path} already exists.")
+        return {"fips": manifest_item["fips"], "status": "skipped"}
 
     download_url = f"{FEMA_BASE_URL}{file_name}"
     logger.info(f"Downloading {download_url} to {storage_path}")
