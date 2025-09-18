@@ -4,7 +4,8 @@ import json
 import logging
 from datetime import UTC, datetime
 
-STORAGE_ROOT = "/cache"
+# --- Configuration ---
+STORAGE_ROOT = "/cache" # This is the mount point for our network file system
 FEMA_BASE_URL = 'https://hazards.fema.gov/nfhlv2/output/State/'
 STFIPS = [
     '01', '02', '04', '05', '06', '08', '09', '10', '11', '12', '13', '15', '16',
@@ -14,19 +15,29 @@ STFIPS = [
     '66', '69', '72', '78',
 ]
 
+STFIPS = [ '01' ]
 
-storage = modal.Volume.from_name("fema-flood-zone-storage")
+# Define a persistent network file system to store our data across runs.
+storage = modal.NetworkFileSystem.persisted("fema-flood-zone-storage")
 
 app = modal.App(
     "fema-flood-zone-pipeline-v2",
+    # We only need 'requests' now, as we aren't using boto3.
     image=modal.Image.debian_slim().pip_install("requests"),
 )
 
+# Set up a logger
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+# --- Modal Functions ---
+
 @app.function(retries=3)
 def get_manifest_for_fips(fips: str) -> dict:
+    """
+    Fetches the data manifest for a single state FIPS code.
+    This function is unchanged as it doesn't interact with storage.
+    """
     import requests
     logger.info(f"Fetching manifest data for FIPS {fips}...")
     try:
@@ -66,20 +77,28 @@ def get_manifest_for_fips(fips: str) -> dict:
 @app.function(
     timeout=1200,
     memory=2048,
-    volumes={STORAGE_ROOT: storage},
+    # Mount the network file system at the specified path inside the container.
+    network_file_system=storage,
 )
 def stream_zip_to_storage(manifest_item: dict):
+    """
+    Downloads a data file from FEMA and streams it to the modal.NetworkFileSystem.
+    """
     import requests
 
     file_name = manifest_item["file_name"]
+    # Define the path on our network storage
     storage_path = os.path.join(STORAGE_ROOT, "state_raw", file_name)
 
+    # 1. Ensure the target directory exists
     os.makedirs(os.path.dirname(storage_path), exist_ok=True)
 
-    # if os.path.exists(storage_path):
-    #     logger.warning(f"SKIP: {storage_path} already exists.")
-    #     return {"fips": manifest_item["fips"], "status": "skipped"}
+    # 2. Check if the file already exists
+    if os.path.exists(storage_path):
+        logger.warning(f"SKIP: {storage_path} already exists.")
+        return {"fips": manifest_item["fips"], "status": "skipped"}
 
+    # 3. Stream the download from FEMA directly to the file
     download_url = f"{FEMA_BASE_URL}{file_name}"
     logger.info(f"Downloading {download_url} to {storage_path}")
 
@@ -93,35 +112,39 @@ def stream_zip_to_storage(manifest_item: dict):
         return {"fips": manifest_item["fips"], "status": "success"}
     except requests.exceptions.RequestException as e:
         logger.error(f"Failed to download {download_url}: {e}")
+        # Clean up partially downloaded file on failure
         if os.path.exists(storage_path):
             os.remove(storage_path)
         return {"fips": manifest_item["fips"], "status": "failed", "error": str(e)}
 
-@app.function(volumes={STORAGE_ROOT: storage})
-def manage_manifest(action: str, path: str, data: dict = None):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    if action == "read":
-        if os.path.exists(path):
-            with open(path, "r") as f:
-                return json.load(f)
-        return None
-    elif action == "write":
-        with open(path, "w") as f:
-            json.dump(data, f, indent=2)
-        return data
-
 @app.local_entrypoint()
 def main():
+    """
+    Orchestrates the entire data pipeline using Modal's NetworkFileSystem.
+    """
     now = datetime.now(UTC)
-    vintage_name = f"mainfest-{now.strftime('%Y%m%d')}"
+    vintage_name = f"v{now.strftime('%Y%m')}"
     manifest_dir = os.path.join(STORAGE_ROOT, "manifest")
     manifest_path = os.path.join(manifest_dir, f"{vintage_name}.json")
     manifest = {}
 
+    # 1. Build or Get Manifest from the Network File System
     logger.info("--- Step 1: Building or Getting Manifest ---")
-
-    result = manage_manifest.remote("delete", manifest_path)
-    print(result)
+    
+    # We need to run a remote function to access the network file system.
+    # We'll do this by "touching" it to get access and create the directory.
+    @app.function(network_file_system=storage)
+    def manage_manifest(action: str, path: str, data: dict = None):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        if action == "read":
+            if os.path.exists(path):
+                with open(path, "r") as f:
+                    return json.load(f)
+            return None
+        elif action == "write":
+            with open(path, "w") as f:
+                json.dump(data, f, indent=2)
+            return data
 
     existing_manifest = manage_manifest.remote("read", manifest_path)
 
@@ -129,14 +152,18 @@ def main():
         logger.info(f"Manifest '{manifest_path}' already exists. Using it.")
         manifest = existing_manifest
     else:
+        # Manifest does not exist, so we create it in parallel
         logger.info(f"Manifest not found. Generating a new one for {vintage_name}...")
         results = list(get_manifest_for_fips.map(STFIPS))
         
+        # Convert list of dicts to the desired fips -> data structure
         manifest = {item.pop("fips"): item for item in results if item}
 
+        # Upload the new manifest
         logger.info(f"Uploading new manifest to '{manifest_path}'")
         manage_manifest.remote("write", manifest_path, data=manifest)
 
+    # 2. Process Files in Parallel
     logger.info(f"\n--- Step 2: Processing {len(manifest)} Files in Parallel ---")
     
     manifest_items_to_process = [
@@ -149,4 +176,4 @@ def main():
             successful_uploads += 1
 
     logger.info(f"\n--- Pipeline Complete ---")
-    logger.info(f"Successfully downloaded {successful_uploads} new files to Modal Volume.")
+    logger.info(f"Successfully downloaded {successful_uploads} new files to Modal Storage.")
