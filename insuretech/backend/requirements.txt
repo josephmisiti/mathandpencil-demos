@@ -5,5 +5,12 @@ uvicorn[standard]>=0.20.0
 # PMTiles support
 pmtiles>=3.0.0
 
+# TiTiler middleware and dependencies
+titiler.core>=0.18.0
+starlette-cramjam>=0.3.0
+
+# Template support
+jinja2>=3.1.0
+
 # Additional dependencies
 starlette>=0.27.0
