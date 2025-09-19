@@ -7,7 +7,7 @@ import subprocess
 import tempfile
 
 STORAGE_ROOT = "/cache"
-TARGET_FIPS = "36"
+TARGET_FIPS = "12"
 REQUIRED_SHAPE_FILE_NAME = "S_FLD_HAZ_AR"
 
 storage = modal.Volume.from_name("fema-flood-zone-storage")
