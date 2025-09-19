@@ -7,35 +7,56 @@ Run with: python tile_server.py
 
 import os
 import json
+import traceback
 from flask import Flask, Response, send_from_directory, jsonify, request
 from flask_cors import CORS
-from pmtiles.reader import Reader
+from pmtiles.reader import Reader, MmapSource
+
 import gzip
 
 app = Flask(__name__)
 CORS(app)  # Enable CORS for cross-origin requests
 
-# Configuration
-PMTILES_FILE = "/Users/josephmisiti/mathandpencil/projects/mathandpencil-demos/insuretech/data/source/NFHL_02_20250811_z0_10.pmtiles"
-PORT = 3000
+# Enable debug mode and show stack traces
+app.config['DEBUG'] = True
+app.config['PROPAGATE_EXCEPTIONS'] = True
 
-# Global PMTiles reader
+# Configuration
+PMTILES_FILE = "/Users/josephmisiti/mathandpencil/projects/mathandpencil-demos/insuretech/backend/source/NFHL_02_20250811_z0_10.pmtiles"
+PORT = 3005
+
+# Global PMTiles reader and file handle
 pmtiles_reader = None
+pmtiles_file_handle = None
 
 def initialize_pmtiles():
     """Initialize the PMTiles reader"""
-    global pmtiles_reader
+    global pmtiles_reader, pmtiles_file_handle
     if not os.path.exists(PMTILES_FILE):
         print(f"Error: PMTiles file not found: {PMTILES_FILE}")
         return False
     
     try:
-        pmtiles_reader = Reader(PMTILES_FILE)
+        # Open the file and create a Reader with MmapSource
+        pmtiles_file_handle = open(PMTILES_FILE, "rb")
+        pmtiles_reader = Reader(MmapSource(pmtiles_file_handle))
         print(f"Successfully loaded PMTiles file: {PMTILES_FILE}")
         return True
     except Exception as e:
+        raise
         print(f"Error loading PMTiles file: {e}")
+        print("Full traceback:")
+        traceback.print_exc()
+        if pmtiles_file_handle:
+            pmtiles_file_handle.close()
         return False
+
+def cleanup_pmtiles():
+    """Clean up PMTiles resources"""
+    global pmtiles_file_handle
+    if pmtiles_file_handle:
+        pmtiles_file_handle.close()
+        pmtiles_file_handle = None
 
 @app.route('/')
 def index():
@@ -100,7 +121,7 @@ def get_tile(z, x, y):
     try:
         # Get tile data from PMTiles
         tile_data = pmtiles_reader.get(z, x, y)
-        
+
         if tile_data is None:
             return Response("Tile not found", status=404)
         
@@ -131,7 +152,10 @@ def get_tile(z, x, y):
         return response
         
     except Exception as e:
-        print(f"Error serving tile {z}/{x}/{y}: {e}")
+        error_msg = f"Error serving tile {z}/{x}/{y}: {e}"
+        print(error_msg)
+        print("Full traceback:")
+        traceback.print_exc()
         return Response(f"Error: {str(e)}", status=500)
 
 @app.route('/metadata')
@@ -144,17 +168,23 @@ def get_metadata():
         header = pmtiles_reader.header()
         metadata = pmtiles_reader.metadata()
         
+        # Convert any non-serializable objects to strings (like enums)
+        serializable_header = {}
+        for key, value in header.items():
+            if hasattr(value, 'name'):  # Enum objects have a 'name' attribute
+                serializable_header[key] = value.name
+            else:
+                serializable_header[key] = value
+        
         return jsonify({
-            "header": {
-                "tile_type": header.get("tile_type"),
-                "tile_compression": header.get("tile_compression"),
-                "min_zoom": header.get("min_zoom"),
-                "max_zoom": header.get("max_zoom"),
-                "bounds": header.get("bounds")
-            },
+            "header": serializable_header,
             "metadata": metadata
         })
     except Exception as e:
+        error_msg = f"Error getting metadata: {e}"
+        print(error_msg)
+        print("Full traceback:")
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 @app.route('/health')
@@ -167,17 +197,26 @@ def health_check():
         "file_exists": os.path.exists(PMTILES_FILE)
     })
 
+@app.teardown_appcontext
+def close_pmtiles(error):
+    """Clean up resources when app context ends"""
+    cleanup_pmtiles()
+
 if __name__ == '__main__':
     print("Starting PMTiles Tile Server...")
     print(f"Looking for PMTiles file: {PMTILES_FILE}")
     
-    if initialize_pmtiles():
-        print(f"Server starting on http://localhost:{PORT}")
-        print(f"Tile endpoint: http://localhost:{PORT}/tiles/{{z}}/{{x}}/{{y}}")
-        print(f"Metadata: http://localhost:{PORT}/metadata")
-        print(f"Health check: http://localhost:{PORT}/health")
-        app.run(host='0.0.0.0', port=PORT, debug=True)
-    else:
-        print("Failed to initialize PMTiles. Please check your file path.")
-        print(f"Current working directory: {os.getcwd()}")
-        print("Available files:", os.listdir('.'))
+    try:
+        if initialize_pmtiles():
+            print(f"Server starting on http://localhost:{PORT}")
+            print(f"Tile endpoint: http://localhost:{PORT}/tiles/{{z}}/{{x}}/{{y}}")
+            print(f"Metadata: http://localhost:{PORT}/metadata")
+            print(f"Health check: http://localhost:{PORT}/health")
+            app.run(host='0.0.0.0', port=PORT, debug=True, use_reloader=True)
+        else:
+            print("Failed to initialize PMTiles. Please check your file path.")
+            print(f"Current working directory: {os.getcwd()}")
+            print("Available files:", os.listdir('.'))
+    finally:
+        # Clean up resources
+        cleanup_pmtiles()

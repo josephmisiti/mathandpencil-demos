@@ -3,6 +3,8 @@ import { useMemo, useState } from "react";
 interface MapControlsProps {
   highResEnabled: boolean;
   onHighResToggle: (enabled: boolean) => void;
+  floodZoneEnabled: boolean;
+  onFloodZoneToggle: (enabled: boolean) => void;
   highResLoading?: boolean;
   highResError?: string | null;
 }
@@ -10,6 +12,8 @@ interface MapControlsProps {
 export default function MapControls({
   highResEnabled,
   onHighResToggle,
+  floodZoneEnabled,
+  onFloodZoneToggle,
   highResLoading = false,
   highResError = null
 }: MapControlsProps) {
@@ -26,6 +30,10 @@ export default function MapControls({
   const handleToggle = () => {
     if (isDisabled) return;
     onHighResToggle(!highResEnabled);
+  };
+
+  const handleFloodToggle = () => {
+    onFloodZoneToggle(!floodZoneEnabled);
   };
 
   return (
@@ -75,6 +83,28 @@ export default function MapControls({
                   {statusMessage}
                 </p>
               )}
+            </div>
+            <div className="px-4 py-3 border-t border-gray-200">
+              <div className="flex items-center justify-between">
+                <label htmlFor="flood-zone-toggle" className="text-sm font-medium text-gray-700">
+                  Flood Zone Overlay
+                </label>
+                <button
+                  id="flood-zone-toggle"
+                  type="button"
+                  onClick={handleFloodToggle}
+                  aria-pressed={floodZoneEnabled}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                    floodZoneEnabled ? "bg-blue-600" : "bg-gray-300"
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform duration-200 ${
+                      floodZoneEnabled ? "translate-x-6" : "translate-x-1"
+                    }`}
+                  />
+                </button>
+              </div>
             </div>
           </div>
         )}

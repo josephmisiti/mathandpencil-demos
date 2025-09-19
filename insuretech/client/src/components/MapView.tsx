@@ -1,20 +1,24 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Map, Marker, InfoWindow } from "@vis.gl/react-google-maps";
 import { MapProps, Location } from "../types/location";
 import MarkerInfo from "./MarkerInfo";
 import MapControls from "./MapControls";
 import { useEagleViewImagery } from "../hooks/useEagleViewImagery";
 import EagleViewOverlay from "./EagleViewOverlay";
+import FloodZoneOverlay from "./FloodZoneOverlay";
 
-export default function MapView({ center, markers, zoom = 12 }: MapProps) {
+export default function MapView({ center, markers, zoom = 12, onViewChange }: MapProps) {
   const [selectedMarker, setSelectedMarker] = useState<Location | null>(null);
   const [highResEnabled, setHighResEnabled] = useState(false);
+  const [floodZoneEnabled, setFloodZoneEnabled] = useState(false);
   const [highResErrorMessage, setHighResErrorMessage] = useState<string | null>(null);
   const [mapZoom, setMapZoom] = useState(zoom);
   const [mapCenter, setMapCenter] = useState<google.maps.LatLngLiteral>({
     lat: center.lat,
     lng: center.lng
   });
+  const mapCenterRef = useRef(mapCenter);
+  const mapZoomRef = useRef(mapZoom);
 
   const { imagery, status, error } = useEagleViewImagery(highResEnabled, center);
 
@@ -32,11 +36,22 @@ export default function MapView({ center, markers, zoom = 12 }: MapProps) {
 
   useEffect(() => {
     setMapZoom(zoom);
+    mapZoomRef.current = zoom;
   }, [zoom]);
 
   useEffect(() => {
-    setMapCenter({lat: center.lat, lng: center.lng});
+    const nextCenter = { lat: center.lat, lng: center.lng };
+    setMapCenter(nextCenter);
+    mapCenterRef.current = nextCenter;
   }, [center.lat, center.lng]);
+
+  useEffect(() => {
+    mapCenterRef.current = mapCenter;
+  }, [mapCenter]);
+
+  useEffect(() => {
+    mapZoomRef.current = mapZoom;
+  }, [mapZoom]);
 
   useEffect(() => {
     if (status === "ready") {
@@ -60,6 +75,8 @@ export default function MapView({ center, markers, zoom = 12 }: MapProps) {
       <MapControls
         highResEnabled={highResEnabled}
         onHighResToggle={handleHighResToggle}
+        floodZoneEnabled={floodZoneEnabled}
+        onFloodZoneToggle={setFloodZoneEnabled}
         highResLoading={status === "loading"}
         highResError={highResErrorMessage}
       />
@@ -81,10 +98,21 @@ export default function MapView({ center, markers, zoom = 12 }: MapProps) {
           position: google.maps.ControlPosition.LEFT_BOTTOM
         }}
         fullscreenControl={false}
-        onZoomChanged={(event) => setMapZoom(event.detail.zoom)}
-        onCenterChanged={(event) => setMapCenter(event.detail.center)}
+        onZoomChanged={(event) => {
+          const newZoom = event.detail.zoom;
+          setMapZoom(newZoom);
+          mapZoomRef.current = newZoom;
+          onViewChange?.({ center: mapCenterRef.current, zoom: newZoom });
+        }}
+        onCenterChanged={(event) => {
+          const newCenter = event.detail.center;
+          setMapCenter(newCenter);
+          mapCenterRef.current = newCenter;
+          onViewChange?.({ center: newCenter, zoom: mapZoomRef.current });
+        }}
       >
         <EagleViewOverlay enabled={!!overlayImagery} imagery={overlayImagery} />
+        <FloodZoneOverlay enabled={floodZoneEnabled} />
         {markers.map((marker) => (
           <Marker
             key={`${marker.lat}-${marker.lng}`}
