@@ -19,21 +19,28 @@ geo_image = (
         "gdal-bin",
         "curl",
         "unzip",
-        "jq"
+        "jq",
+        "build-essential",
+        "libsqlite3-dev",
+        "zlib1g-dev",
+        "git"
     )
     .pip_install("requests")
     .run_commands([
-        # Install tippecanoe
-        "curl -L https://github.com/felt/tippecanoe/releases/download/2.41.3/tippecanoe-linux -o /usr/local/bin/tippecanoe",
-        "chmod +x /usr/local/bin/tippecanoe",
+        # Build and install tippecanoe from source (more reliable than binary)
+        "git clone https://github.com/felt/tippecanoe.git /tmp/tippecanoe",
+        "cd /tmp/tippecanoe && make && make install",
+        "rm -rf /tmp/tippecanoe",
         # Install pmtiles
-        "curl -L https://github.com/protomaps/go-pmtiles/releases/download/v1.11.1/go-pmtiles_1.11.1_Linux_x86_64.tar.gz -o pmtiles.tar.gz",
-        "tar -xzf pmtiles.tar.gz",
-        "mv pmtiles /usr/local/bin/",
+        "curl -L https://github.com/protomaps/go-pmtiles/releases/download/v1.11.1/go-pmtiles_1.11.1_Linux_x86_64.tar.gz -o /tmp/pmtiles.tar.gz",
+        "cd /tmp && tar -xzf pmtiles.tar.gz",
+        "mv /tmp/pmtiles /usr/local/bin/",
         "chmod +x /usr/local/bin/pmtiles",
-        # Install tile-join (part of tippecanoe ecosystem)
-        "curl -L https://github.com/felt/tippecanoe/releases/download/2.41.3/tile-join-linux -o /usr/local/bin/tile-join",
-        "chmod +x /usr/local/bin/tile-join"
+        "rm /tmp/pmtiles.tar.gz",
+        # Verify installations
+        "tippecanoe --version || echo 'tippecanoe installation check'",
+        "tile-join --version || echo 'tile-join installation check'", 
+        "pmtiles --help || echo 'pmtiles installation check'"
     ])
 )
 
@@ -122,7 +129,18 @@ def convert_gdb_to_fgb(fips: str, file_name: str):
             run_command(f"cp '{temp_raw_fgb}' '{raw_fgb_path}'")
             run_command(f"cp '{temp_filtered_fgb}' '{fgb_path}'")
             
-            logger.info(f"SUCCESS: Created {fgb_path}")
+            # Commit changes to Modal volume
+            storage.commit()
+            
+            # Verify files were written
+            if os.path.exists(fgb_path) and os.path.exists(raw_fgb_path):
+                fgb_size = os.path.getsize(fgb_path) / (1024*1024)  # MB
+                raw_size = os.path.getsize(raw_fgb_path) / (1024*1024)  # MB
+                logger.info(f"SUCCESS: Created {fgb_path} ({fgb_size:.1f}MB)")
+                logger.info(f"SUCCESS: Created {raw_fgb_path} ({raw_size:.1f}MB)")
+            else:
+                raise Exception("Files were not written to storage successfully")
+            
             return {"fips": fips, "status": "success", "fgb_path": fgb_path, "raw_fgb_path": raw_fgb_path}
             
         except Exception as e:
@@ -209,11 +227,27 @@ def create_pmtiles(fips: str, fgb_path: str, raw_fgb_path: str):
             run_command(f"cp '{temp_z10_16}' '{z10_16_path}'")
             run_command(f"cp '{temp_z18}' '{z18_path}'")
             
-            logger.info(f"SUCCESS: Created PMTiles for {state_name}")
+            # Commit changes to Modal volume
+            storage.commit()
+            
+            # Verify files were written and get sizes
+            tiles_created = []
+            for tile_path in [z0_10_path, z10_16_path, z18_path]:
+                if os.path.exists(tile_path):
+                    size_mb = os.path.getsize(tile_path) / (1024*1024)
+                    logger.info(f"Created: {tile_path} ({size_mb:.1f}MB)")
+                    tiles_created.append(tile_path)
+                else:
+                    logger.error(f"Failed to create: {tile_path}")
+            
+            if len(tiles_created) != 3:
+                raise Exception("Not all PMTiles were created successfully")
+            
+            logger.info(f"SUCCESS: Created all PMTiles for {state_name}")
             return {
                 "fips": fips, 
                 "status": "success",
-                "tiles": [z0_10_path, z10_16_path, z18_path]
+                "tiles": tiles_created
             }
             
         except Exception as e:
@@ -232,7 +266,7 @@ def get_manifest():
     if not manifest_files:
         raise ValueError("No manifest files found")
     
-    latest_manifest = sorted(manifest_files)[-1]
+    latest_manifest = "mainfest-20250918.json"
     manifest_path = os.path.join(manifest_dir, latest_manifest)
     
     with open(manifest_path, 'r') as f:

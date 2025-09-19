@@ -113,7 +113,8 @@ def manage_manifest(action: str, path: str, data: dict = None):
 @app.local_entrypoint()
 def main():
     now = datetime.now(UTC)
-    vintage_name = f"mainfest-{now.strftime('%Y%m%d')}"
+    #vintage_name = f"mainfest-{now.strftime('%Y%m%d')}"
+    vintage_name = "mainfest-20250918.json"
     manifest_dir = os.path.join(STORAGE_ROOT, "manifest")
     manifest_path = os.path.join(manifest_dir, f"{vintage_name}.json")
     manifest = {}
