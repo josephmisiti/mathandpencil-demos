@@ -65,8 +65,9 @@ def run_command(cmd, check=True):
     return result
 
 @app.function(
-    timeout=1800,  # 30 minutes
+    timeout=7200,  # Allow long-running conversions (2 hours)
     memory=8192,   # 8GB
+    cpu=4,
     volumes={STORAGE_ROOT: storage},
 )
 def convert_gdb_to_fgb(fips: str, file_name: str):
@@ -148,8 +149,9 @@ def convert_gdb_to_fgb(fips: str, file_name: str):
             return {"fips": fips, "status": "failed", "error": str(e)}
 
 @app.function(
-    timeout=1800,  # 30 minutes
+    timeout=7200,  # Allow heavy tile builds to finish
     memory=8192,   # 8GB  
+    cpu=4,
     volumes={STORAGE_ROOT: storage},
 )
 def create_pmtiles(fips: str, fgb_path: str, raw_fgb_path: str):
@@ -183,6 +185,7 @@ def create_pmtiles(fips: str, fgb_path: str, raw_fgb_path: str):
                 f'tippecanoe -z10 -D10 '
                 f'--maximum-tile-bytes=1000000 '
                 f'--progress-interval=30 '
+                f'--read-parallel '
                 f'--hilbert '
                 f'--coalesce-densest-as-needed '
                 f'--force '
@@ -198,6 +201,7 @@ def create_pmtiles(fips: str, fgb_path: str, raw_fgb_path: str):
                 f'tippecanoe -Z10 -z16 '
                 f'--maximum-tile-bytes=1000000 '
                 f'--progress-interval=30 '
+                f'--read-parallel '
                 f'--hilbert '
                 f'--coalesce-densest-as-needed '
                 f'--force '
@@ -213,6 +217,7 @@ def create_pmtiles(fips: str, fgb_path: str, raw_fgb_path: str):
                 f'tippecanoe -Z18 -z18 '
                 f'--maximum-tile-bytes=1000000 '
                 f'--progress-interval=30 '
+                f'--read-parallel '
                 f'--hilbert '
                 f'--coalesce-densest-as-needed '
                 f'--force '
