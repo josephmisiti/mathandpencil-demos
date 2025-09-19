@@ -78,6 +78,8 @@ logger = logging.getLogger(__name__)
 def stream_zip_to_storage(file_name: str, download_url: str) -> dict:
     import requests
 
+    storage.reload()
+
     storage_path = os.path.join(STORAGE_ROOT, "raw", file_name)
     os.makedirs(os.path.dirname(storage_path), exist_ok=True)
 
@@ -95,6 +97,7 @@ def stream_zip_to_storage(file_name: str, download_url: str) -> dict:
                     if chunk:
                         destination.write(chunk)
         logger.info("SUCCESS: Downloaded %s", storage_path)
+        storage.commit()
         return {"file": file_name, "status": "success"}
     except requests.exceptions.RequestException as exc:
         logger.error("Failed to download %s: %s", download_url, exc)

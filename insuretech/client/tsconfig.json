@@ -13,6 +13,10 @@
     "noEmit": true,
     "jsx": "react-jsx",
 
+    "paths": {
+      "earcut": ["./src/vendor/earcut.ts"]
+    },
+
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,

@@ -10,6 +10,14 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@deck.gl/core": "^9.0.0",
+    "@deck.gl/extensions": "^9.0.0",
+    "@deck.gl/geo-layers": "^9.0.0",
+    "@deck.gl/google-maps": "^9.0.0",
+    "@deck.gl/layers": "^9.0.0",
+    "@deck.gl/mesh-layers": "^9.0.0",
+    "@loaders.gl/core": "^4.1.0",
+    "@loaders.gl/mvt": "^4.1.0",
     "@vis.gl/react-google-maps": "^1.0.0",
     "lodash": "^4.17.21",
     "react": "^18.2.0",

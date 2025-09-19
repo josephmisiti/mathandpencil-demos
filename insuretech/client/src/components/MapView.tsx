@@ -7,11 +7,18 @@ import { useEagleViewImagery } from "../hooks/useEagleViewImagery";
 import EagleViewOverlay from "./EagleViewOverlay";
 import FloodZoneOverlay from "./FloodZoneOverlay";
 
-export default function MapView({ center, markers, zoom = 12, onViewChange }: MapProps) {
+export default function MapView({
+  center,
+  markers,
+  zoom = 12,
+  onViewChange
+}: MapProps) {
   const [selectedMarker, setSelectedMarker] = useState<Location | null>(null);
   const [highResEnabled, setHighResEnabled] = useState(false);
-  const [floodZoneEnabled, setFloodZoneEnabled] = useState(false);
-  const [highResErrorMessage, setHighResErrorMessage] = useState<string | null>(null);
+  const [floodZoneEnabled, setFloodZoneEnabled] = useState(true);
+  const [highResErrorMessage, setHighResErrorMessage] = useState<string | null>(
+    null
+  );
   const [mapZoom, setMapZoom] = useState(zoom);
   const [mapCenter, setMapCenter] = useState<google.maps.LatLngLiteral>({
     lat: center.lat,
@@ -20,7 +27,10 @@ export default function MapView({ center, markers, zoom = 12, onViewChange }: Ma
   const mapCenterRef = useRef(mapCenter);
   const mapZoomRef = useRef(mapZoom);
 
-  const { imagery, status, error } = useEagleViewImagery(highResEnabled, center);
+  const { imagery, status, error } = useEagleViewImagery(
+    highResEnabled,
+    center
+  );
 
   const overlayImagery = useMemo(() => {
     if (!highResEnabled || status !== "ready") return null;
