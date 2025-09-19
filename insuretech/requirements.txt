@@ -1,0 +1,8 @@
+
+# Requirements for PMTiles Flask Tile Server
+flask>=2.3.0
+flask-cors>=4.0.0
+pmtiles>=3.0.0
+
+# Optional: for better performance and additional features
+gunicorn>=21.0.0
