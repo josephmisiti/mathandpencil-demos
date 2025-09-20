@@ -65,6 +65,21 @@ PMTILES_VARIANTS: List[Dict[str, str]] = [
         "dataset": "flood_zones",
         "path": os.path.join(BASE_DIR, "source", "NFHL_36_20250819_z18.pmtiles"),
     },
+    {
+        "key": "nfhl_12_z0_10",
+        "dataset": "flood_zones",
+        "path": os.path.join(BASE_DIR, "source", "NFHL_12_20250902_z0_10.pmtiles"),
+    },
+    {
+        "key": "nfhl_12_z10_16",
+        "dataset": "flood_zones",
+        "path": os.path.join(BASE_DIR, "source", "NFHL_12_20250902_z10_16.pmtiles"),
+    },
+    {
+        "key": "nfhl_12_z18",
+        "dataset": "flood_zones",
+        "path": os.path.join(BASE_DIR, "source", "NFHL_12_20250902_z18.pmtiles"),
+    },
 ]
 
 # Global catalogue of loaded PMTiles variants indexed by their key.
