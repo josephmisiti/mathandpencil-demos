@@ -6,6 +6,7 @@ import MapControls from "./MapControls";
 import { useEagleViewImagery } from "../hooks/useEagleViewImagery";
 import EagleViewOverlay from "./EagleViewOverlay";
 import FloodZoneOverlay from "./FloodZoneOverlay";
+import FloodZoneLegend from "./FloodZoneLegend";
 
 export default function MapView({
   center,
@@ -143,6 +144,7 @@ export default function MapView({
           </InfoWindow>
         )}
       </Map>
+      {floodZoneEnabled && <FloodZoneLegend />}
     </div>
   );
 }
