@@ -1,19 +1,22 @@
 #!/usr/bin/env python3
 """
-Simple Working PMTiles Server (Single File Version)
-No TiTiler dependencies, just FastAPI + PMTiles.
-This version is refactored to serve a single, consolidated PMTiles file
-and uses the modern 'lifespan' event handler.
+Simple PMTiles Server with FastAPI.
+
+This variant supports serving multiple PMTiles archives that cover different
+zoom ranges (and optionally different geographic footprints) for the same
+logical dataset. It automatically selects the best archive to satisfy a tile
+request based on zoom level and tile bounds.
 
 Install dependencies: pip install fastapi uvicorn pmtiles jinja2
-Run with: uvicorn pmtiles_server:app --host 0.0.0.0 --port 8000 --reload
+Run with: uvicorn tile_server:app --host 0.0.0.0 --port 8000 --reload
 """
 
 import logging
+import math
 import os
 import traceback
 from contextlib import asynccontextmanager
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import jinja2
 from fastapi import FastAPI, HTTPException, Request
@@ -24,69 +27,199 @@ from starlette.templating import Jinja2Templates
 
 # --- CONFIGURATION ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-PMTILES_FILE_PATH = os.path.join(BASE_DIR, "source", "NFHL_02_20250811_z10_16.pmtiles")
 
-PMTILES_FILES = {
-    "flood_zones": PMTILES_FILE_PATH,
-}
+# Describe the PMTiles archives that should be loaded. Each entry should point
+# to a PMTiles file on disk; if it is missing it will simply be skipped.
+PMTILES_VARIANTS: List[Dict[str, str]] = [
+    {
+        "key": "nfhl_02_z0_10",
+        "dataset": "flood_zones",
+        "path": os.path.join(BASE_DIR, "source", "NFHL_02_20250811_z0_10.pmtiles"),
+    },
+    {
+        "key": "nfhl_02_z10_16",
+        "dataset": "flood_zones",
+        "path": os.path.join(BASE_DIR, "source", "NFHL_02_20250811_z10_16.pmtiles"),
+    },
+    {
+        "key": "nfhl_02_z18",
+        "dataset": "flood_zones",
+        "path": os.path.join(BASE_DIR, "source", "NFHL_02_20250811_z18.pmtiles"),
+    },
+    {
+        "key": "nfhl_36_z0_10",
+        "dataset": "flood_zones",
+        "path": os.path.join(BASE_DIR, "source", "NFHL_36_20250819_z0_10.pmtiles"),
+    },
+    {
+        "key": "nfhl_36_z10_16",
+        "dataset": "flood_zones",
+        "path": os.path.join(BASE_DIR, "source", "NFHL_36_20250819_z10_16.pmtiles"),
+    },
+    {
+        "key": "nfhl_36_z18",
+        "dataset": "flood_zones",
+        "path": os.path.join(BASE_DIR, "source", "NFHL_36_20250819_z18.pmtiles"),
+    },
+]
 
-# Global PMTiles readers and file handles
-pmtiles_readers: Dict[str, Reader] = {}
-pmtiles_file_handles: Dict[str, object] = {}
+# Global catalogue of loaded PMTiles variants indexed by their key.
+CatalogEntry = Dict[str, object]
+pmtiles_catalog: Dict[str, CatalogEntry] = {}
+# Map dataset name -> list of variant keys for quick lookup.
+pmtiles_datasets: Dict[str, List[str]] = {}
+
+
+def _lon_lat_bounds_from_header(header: Dict[str, int]) -> Tuple[float, float, float, float]:
+    """Convert fixed-point header bounds to floats."""
+    return (
+        header.get("min_lon_e7", 0) / 1e7,
+        header.get("min_lat_e7", 0) / 1e7,
+        header.get("max_lon_e7", 0) / 1e7,
+        header.get("max_lat_e7", 0) / 1e7,
+    )
+
+
+def _tile_xyz_to_lon_lat_bounds(z: int, x: int, y: int) -> Tuple[float, float, float, float]:
+    """Return lon/lat bounds for a WebMercator tile."""
+    n = 2 ** z
+    lon_min = x / n * 360.0 - 180.0
+    lon_max = (x + 1) / n * 360.0 - 180.0
+
+    def mercator_to_lat(tile_y: int) -> float:
+        exp = math.pi * (1 - 2 * tile_y / n)
+        return math.degrees(math.atan(math.sinh(exp)))
+
+    lat_max = mercator_to_lat(y)
+    lat_min = mercator_to_lat(y + 1)
+    return (lon_min, lat_min, lon_max, lat_max)
+
+
+def _bbox_intersects(a: Tuple[float, float, float, float], b: Tuple[float, float, float, float]) -> bool:
+    """Check if two [min_lon, min_lat, max_lon, max_lat] boxes intersect."""
+    return not (a[2] <= b[0] or a[0] >= b[2] or a[3] <= b[1] or a[1] >= b[3])
+
 
 def initialize_pmtiles() -> bool:
-    """Initialize all PMTiles readers from the configuration."""
-    global pmtiles_readers, pmtiles_file_handles
-    
-    key, file_path = next(iter(PMTILES_FILES.items()))
+    """Initialize all configured PMTiles archives."""
+    global pmtiles_catalog, pmtiles_datasets
 
-    if not os.path.exists(file_path):
-        print("="*80)
-        print(f"❌ FATAL ERROR: PMTiles file not found at the configured path.")
-        print(f"   Checked Path: {file_path}")
-        print("   Please ensure the file exists and the path is correct.")
-        print("="*80)
-        raise FileNotFoundError(f"PMTiles file not found: {file_path}")
-    
-    try:
-        file_handle = open(file_path, "rb")
-        reader = Reader(MmapSource(file_handle))
-        
-        pmtiles_file_handles[key] = file_handle
-        pmtiles_readers[key] = reader
-        
-        print(f"✓ Successfully loaded: {key} -> {os.path.basename(file_path)}")
+    if pmtiles_catalog:
+        # Already initialized (useful in reload scenarios)
         return True
-        
-    except Exception as e:
-        print(f"✗ Error loading {file_path}: {e}")
-        if key in pmtiles_file_handles:
-            pmtiles_file_handles[key].close()
-            del pmtiles_file_handles[key]
-        return False
+
+    loaded_count = 0
+    for entry in PMTILES_VARIANTS:
+        key = entry["key"]
+        dataset = entry["dataset"]
+        path = entry["path"]
+
+        if not os.path.exists(path):
+            logging.warning("PMTiles file missing, skipping: %s", path)
+            continue
+
+        try:
+            file_handle = open(path, "rb")
+            reader = Reader(MmapSource(file_handle))
+            header = reader.header()
+            metadata = reader.metadata() or {}
+
+            catalog_entry: CatalogEntry = {
+                "key": key,
+                "dataset": dataset,
+                "path": path,
+                "file_handle": file_handle,
+                "reader": reader,
+                "header": header,
+                "metadata": metadata,
+                "min_zoom": header.get("min_zoom", 0),
+                "max_zoom": header.get("max_zoom", 0),
+                "bounds": _lon_lat_bounds_from_header(header),
+            }
+
+            pmtiles_catalog[key] = catalog_entry
+            pmtiles_datasets.setdefault(dataset, []).append(key)
+            loaded_count += 1
+            print(f"✓ Loaded {dataset}: {os.path.basename(path)} (key={key})")
+        except Exception as exc:  # pragma: no cover - initialization should succeed, log otherwise
+            logging.exception("Failed to load PMTiles archive %s: %s", path, exc)
+
+    if loaded_count == 0:
+        raise FileNotFoundError("No PMTiles archives could be loaded; check configuration paths.")
+
+    # Sort dataset variants so that higher-resolution archives appear last.
+    for dataset, keys in pmtiles_datasets.items():
+        pmtiles_datasets[dataset] = sorted(
+            keys,
+            key=lambda k: (pmtiles_catalog[k]["min_zoom"], pmtiles_catalog[k]["max_zoom"]),
+        )
+
+    return True
+
 
 def cleanup_pmtiles():
     """Clean up PMTiles resources on shutdown."""
     print("Shutting down and closing PMTiles file handles...")
-    global pmtiles_file_handles
-    for key, file_handle in pmtiles_file_handles.items():
+    global pmtiles_catalog, pmtiles_datasets
+
+    for entry in pmtiles_catalog.values():
+        file_handle = entry.get("file_handle")
         if file_handle:
             file_handle.close()
-    pmtiles_file_handles.clear()
-    pmtiles_readers.clear()
+
+    pmtiles_catalog.clear()
+    pmtiles_datasets.clear()
     print("Cleanup complete.")
 
+
+def _select_catalog_entry(z: int, x: int, y: int, dataset: str = "flood_zones") -> Optional[CatalogEntry]:
+    """Find the best PMTiles archive for the requested tile."""
+    if dataset not in pmtiles_datasets:
+        return None
+
+    bbox = _tile_xyz_to_lon_lat_bounds(z, x, y)
+    candidates = []
+
+    for key in pmtiles_datasets[dataset]:
+        entry = pmtiles_catalog[key]
+        if not _bbox_intersects(bbox, entry["bounds"]):
+            continue
+
+        min_zoom = entry["min_zoom"]
+        max_zoom = entry["max_zoom"]
+
+        if min_zoom <= z <= max_zoom:
+            zoom_penalty = 0
+        elif z < min_zoom:
+            zoom_penalty = min_zoom - z
+        else:
+            zoom_penalty = z - max_zoom
+
+        # Prefer smaller penalty (exact zoom match wins) and higher max zoom.
+        candidates.append((zoom_penalty, -max_zoom, entry))
+
+    if not candidates:
+        return None
+
+    candidates.sort(key=lambda item: (item[0], item[1]))
+    return candidates[0][2]
+
+
 def get_tile_data(z: int, x: int, y: int) -> Tuple[Optional[bytes], Optional[str]]:
-    """Get tile data from the loaded PMTiles file."""
-    if not pmtiles_readers:
+    """Get tile data from the loaded PMTiles archives."""
+    entry = _select_catalog_entry(z, x, y)
+    if entry is None:
         return None, None
-    
-    reader = next(iter(pmtiles_readers.values()))
+
+
+    print('entry', entry)
+
+    reader: Reader = entry["reader"]  # type: ignore[index]
     tile_data = reader.get(z, x, y)
-    
+
     if tile_data is None:
         return None, None
-    
+
     content_type = "application/vnd.mapbox-vector-tile"
     return tile_data, content_type
 
@@ -124,12 +257,12 @@ jinja2_env = jinja2.Environment(
 <body>
     <div class="container">
         <h1>🗺️ PMTiles Tile Server</h1>
-        <p class="subtitle">High-performance tile server for a single PMTiles file using FastAPI.</p>
+        <p class="subtitle">High-performance tile server for serving PMTiles archives with FastAPI.</p>
         <div class="status">
             <strong>✅ Server Status:</strong> Running with {{ loaded_count }} PMTiles file(s) loaded.
         </div>
         <div class="file-list">
-            <h3>📁 Loaded PMTiles File:</h3>
+            <h3>📁 Loaded PMTiles Files:</h3>
             {% for key, info in files.items() %}
             <div class="file-item">
                 <strong>{{ key }}</strong>: {{ info.filename }} 
@@ -250,8 +383,8 @@ async def lifespan(app: FastAPI):
 # --- APP SETUP ---
 app = FastAPI(
     title="PMTiles Tile Server",
-    description="High-performance tile server for a single PMTiles file.",
-    version="1.5.2", # Incremented version
+    description="High-performance tile server for PMTiles archives.",
+    version="1.6.0",
     lifespan=lifespan,
 )
 app.add_middleware(
@@ -264,16 +397,20 @@ app.add_middleware(
 @app.get("/", response_class=HTMLResponse)
 async def landing(request: Request):
     files_info = {}
-    for key, reader in pmtiles_readers.items():
-        header = reader.header()
+    for key, entry in pmtiles_catalog.items():
         files_info[key] = {
-            "filename": os.path.basename(PMTILES_FILES[key]),
-            "minzoom": header.get('min_zoom', 0),
-            "maxzoom": header.get('max_zoom', 18)
+            "filename": os.path.basename(entry["path"]),
+            "minzoom": entry["min_zoom"],
+            "maxzoom": entry["max_zoom"],
         }
     return templates.TemplateResponse(
         "index.html",
-        {"request": request, "api_root": str(request.base_url).rstrip("/"), "files": files_info, "loaded_count": len(pmtiles_readers)},
+        {
+            "request": request,
+            "api_root": str(request.base_url).rstrip("/"),
+            "files": files_info,
+            "loaded_count": len(pmtiles_catalog),
+        },
     )
 
 @app.get("/map", response_class=HTMLResponse)
@@ -305,38 +442,58 @@ async def get_tile(z: int, x: int, y: int):
 
 @app.get("/info")
 async def get_info(request: Request):
-    if not pmtiles_readers:
-        raise HTTPException(status_code=404, detail="PMTiles file not loaded")
-    
-    try:
-        reader = next(iter(pmtiles_readers.values()))
-        metadata = reader.metadata() or {}
-        header = reader.header()
+    if not pmtiles_catalog:
+        raise HTTPException(status_code=404, detail="PMTiles archives not loaded")
 
-        bounds = [
-            header.get("min_lon_e7", 0) / 1e7,
-            header.get("min_lat_e7", 0) / 1e7,
-            header.get("max_lon_e7", 0) / 1e7,
-            header.get("max_lat_e7", 0) / 1e7,
-        ]
+    dataset_keys = pmtiles_datasets.get("flood_zones")
+    if not dataset_keys:
+        raise HTTPException(status_code=404, detail="Requested dataset not available")
+
+    try:
+        entries = [pmtiles_catalog[key] for key in dataset_keys]
+        min_zoom = min(entry["min_zoom"] for entry in entries)
+        max_zoom = max(entry["max_zoom"] for entry in entries)
+
+        bounds = (
+            min(entry["bounds"][0] for entry in entries),
+            min(entry["bounds"][1] for entry in entries),
+            max(entry["bounds"][2] for entry in entries),
+            max(entry["bounds"][3] for entry in entries),
+        )
+
+        # Use the highest-resolution archive for name/center metadata.
+        reference_entry = max(entries, key=lambda entry: entry["max_zoom"])
+        header = reference_entry["header"]
+        metadata = reference_entry["metadata"]
+
         center = [
             header.get("center_lon_e7", 0) / 1e7,
             header.get("center_lat_e7", 0) / 1e7,
-            header.get("center_zoom", 0),
+            header.get("center_zoom", max_zoom),
         ]
 
         tilejson = {
             "tilejson": "2.2.0",
             "name": metadata.get("name", "Flood Zones"),
             "tiles": [f"{str(request.base_url).rstrip('/')}/tiles/{{z}}/{{x}}/{{y}}"],
-            "minzoom": header.get("min_zoom", 0),
-            "maxzoom": header.get("max_zoom", 18),
+            "minzoom": min_zoom,
+            "maxzoom": max_zoom,
             "bounds": bounds,
             "center": center,
-            "vector_layers": metadata.get("vector_layers", [])
+            "vector_layers": metadata.get("vector_layers", []),
+            "variants": [
+                {
+                    "key": entry["key"],
+                    "filename": os.path.basename(entry["path"]),
+                    "minzoom": entry["min_zoom"],
+                    "maxzoom": entry["max_zoom"],
+                    "bounds": entry["bounds"],
+                }
+                for entry in entries
+            ],
         }
         return tilejson
-    except Exception as e:
+    except Exception as e:  # pragma: no cover - surfaces in API response
         raise HTTPException(status_code=500, detail=f"Error reading metadata: {e}")
 
 # --- MAIN EXECUTION ---
