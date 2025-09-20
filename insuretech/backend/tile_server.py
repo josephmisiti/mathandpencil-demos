@@ -172,19 +172,6 @@ def _iter_tile_features(tile_bytes: bytes, z: int, x: int, y: int):
             yield layer_name, feature
 
 
-def _count_vertices(geometry: Dict[str, object]) -> int:
-    coords = geometry.get("coordinates") if geometry else None
-
-    def _count(obj) -> int:
-        if isinstance(obj, (list, tuple)):
-            if obj and isinstance(obj[0], (float, int)):
-                return 1
-            return sum(_count(child) for child in obj)
-        return 0
-
-    return _count(coords)
-
-
 def initialize_pmtiles() -> bool:
     """Initialize all configured PMTiles archives."""
     global pmtiles_catalog, pmtiles_datasets
@@ -307,8 +294,6 @@ def find_floodzone_feature(lat: float, lng: float) -> Optional[Dict[str, object]
     max_zoom = int(max(entry["max_zoom"] for entry in entries))
 
     point = Point(lng, lat)
-    best_match: Optional[Dict[str, object]] = None
-    best_score: Tuple[int, int] = (-1, -1)
 
     for z in range(max_zoom, min_zoom - 1, -1):
         tile_x, tile_y = _lon_lat_to_tile(z, lng, lat)
@@ -344,20 +329,15 @@ def find_floodzone_feature(lat: float, lng: float) -> Optional[Dict[str, object]
                 continue
 
             if geom.covers(point):
-                vertex_count = _count_vertices(geometry)
-                score = (vertex_count, z)
+                return {
+                    "layer": layer_name,
+                    "properties": feature.get("properties", {}),
+                    "geometry": geometry,
+                    "tile": {"z": z, "x": tile_x, "y": tile_y},
+                    "variant": entry["key"],
+                }
 
-                if best_match is None or score > best_score:
-                    best_match = {
-                        "layer": layer_name,
-                        "properties": feature.get("properties", {}),
-                        "geometry": geometry,
-                        "tile": {"z": z, "x": tile_x, "y": tile_y},
-                        "variant": entry["key"],
-                    }
-                    best_score = score
-
-    return best_match
+    return None
 
 
 def get_tile_data(z: int, x: int, y: int) -> Tuple[Optional[bytes], Optional[str]]:

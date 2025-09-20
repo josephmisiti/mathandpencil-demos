@@ -27,6 +27,14 @@ export default function MapView({
   });
   const mapCenterRef = useRef(mapCenter);
   const mapZoomRef = useRef(mapZoom);
+  const mapContainerRef = useRef<HTMLDivElement | null>(null);
+  const [contextMenu, setContextMenu] = useState<
+    | null
+    | {
+        latLng: google.maps.LatLngLiteral;
+        position: { x: number; y: number };
+      }
+  >(null);
 
   const { imagery, status, error } = useEagleViewImagery(
     highResEnabled,
@@ -81,8 +89,14 @@ export default function MapView({
     }
   }, [error, highResEnabled, status]);
 
+  useEffect(() => {
+    if (!floodZoneEnabled) {
+      setContextMenu(null);
+    }
+  }, [floodZoneEnabled]);
+
   return (
-    <div className="w-screen h-screen relative">
+    <div ref={mapContainerRef} className="relative h-screen w-screen">
       <MapControls
         highResEnabled={highResEnabled}
         onHighResToggle={handleHighResToggle}
@@ -121,6 +135,46 @@ export default function MapView({
           mapCenterRef.current = newCenter;
           onViewChange?.({ center: newCenter, zoom: mapZoomRef.current });
         }}
+        onClick={() => setContextMenu(null)}
+        onContextmenu={(event) => {
+          if (!floodZoneEnabled) return;
+
+          const clickedLatLng = event.detail.latLng;
+          if (!clickedLatLng) return;
+
+          const domEvent = event.domEvent as MouseEvent | undefined;
+          if (domEvent) {
+            domEvent.preventDefault();
+            domEvent.stopPropagation();
+          }
+
+          const containerRect = mapContainerRef.current?.getBoundingClientRect();
+          const MENU_WIDTH = 180;
+          const MENU_HEIGHT = 60;
+
+          let position = { x: 0, y: 0 };
+          if (domEvent && containerRect) {
+            const rawX = domEvent.clientX - containerRect.left;
+            const rawY = domEvent.clientY - containerRect.top;
+            position = {
+              x: Math.max(
+                0,
+                Math.min(rawX, Math.max(containerRect.width - MENU_WIDTH, 0))
+              ),
+              y: Math.max(
+                0,
+                Math.min(rawY, Math.max(containerRect.height - MENU_HEIGHT, 0))
+              )
+            };
+          } else if (containerRect) {
+            position = {
+              x: Math.max(containerRect.width / 2 - MENU_WIDTH / 2, 0),
+              y: Math.max(containerRect.height / 2 - MENU_HEIGHT / 2, 0)
+            };
+          }
+
+          setContextMenu({ latLng: clickedLatLng, position });
+        }}
       >
         <EagleViewOverlay enabled={!!overlayImagery} imagery={overlayImagery} />
         <FloodZoneOverlay enabled={floodZoneEnabled} />
@@ -145,6 +199,26 @@ export default function MapView({
         )}
       </Map>
       {floodZoneEnabled && <FloodZoneLegend />}
+      {contextMenu && (
+        <div
+          className="absolute z-30 min-w-[180px] rounded-md border border-slate-200 bg-white py-1 shadow-lg"
+          style={{ left: contextMenu.position.x, top: contextMenu.position.y }}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <button
+            className="block w-full px-4 py-2 text-left text-sm text-slate-600 hover:bg-slate-100"
+            onClick={() => {
+              const url = new URL("http://localhost:3005/api/v1/floodzone");
+              url.searchParams.set("lat", contextMenu.latLng.lat.toString());
+              url.searchParams.set("lng", contextMenu.latLng.lng.toString());
+              window.open(url.toString(), "_blank", "noopener,noreferrer");
+              setContextMenu(null);
+            }}
+          >
+            Go to Floodzone API
+          </button>
+        </div>
+      )}
     </div>
   );
 }
