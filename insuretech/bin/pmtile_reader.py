@@ -129,15 +129,15 @@ if __name__ == "__main__":
         epilog="""
 Examples:
   # Show metadata
-  python script.py file.pmtiles
-  python script.py file.pmtiles --metadata
+  python bin/pmtile_reader.py file.pmtiles
+  python bin/pmtile_reader.py file.pmtiles --metadata
   
   # Get specific tile
-  python script.py file.pmtiles --tile 8 0 0
-  python script.py file.pmtiles 8 0 0
+  python bin/pmtile_reader.py file.pmtiles --tile 8 0 0
+  python bin/pmtile_reader.py file.pmtiles 8 0 0
   
   # Save tile to file  
-  python script.py file.pmtiles --tile 8 0 0 --output tile.mvt
+  python bin/pmtile_reader.py file.pmtiles --tile 8 0 0 --output tile.mvt
         """,
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
