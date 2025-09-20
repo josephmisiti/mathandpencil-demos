@@ -65,7 +65,7 @@ function App() {
     url.searchParams.set("lat", location.lat.toString());
     url.searchParams.set("lng", location.lng.toString());
     url.searchParams.set("address", encodeURIComponent(location.address));
-    url.searchParams.set("zoom", mapZoom.toFixed(2));
+    url.searchParams.set("zoom", mapZoom.toFixed(0));
     window.history.pushState({}, "", url.toString());
   };
 
@@ -83,10 +83,16 @@ function App() {
     window.history.pushState({}, "", url.toString());
   };
 
-  const handleMapViewChange = (view: { center: { lat: number; lng: number }; zoom: number }) => {
+  const handleMapViewChange = (view: {
+    center: { lat: number; lng: number };
+    zoom: number;
+  }) => {
     const { center, zoom } = view;
     setMapCenter((prev) => {
-      if (Math.abs(prev.lat - center.lat) < 1e-7 && Math.abs(prev.lng - center.lng) < 1e-7) {
+      if (
+        Math.abs(prev.lat - center.lat) < 1e-7 &&
+        Math.abs(prev.lng - center.lng) < 1e-7
+      ) {
         return prev;
       }
       return {
@@ -100,14 +106,19 @@ function App() {
     const url = new URL(window.location.href);
     url.searchParams.set("lat", center.lat.toFixed(6));
     url.searchParams.set("lng", center.lng.toFixed(6));
-    url.searchParams.set("zoom", zoom.toFixed(2));
+    url.searchParams.set("zoom", zoom.toFixed(0));
     window.history.replaceState({}, "", url.toString());
   };
 
   return (
     <APIProvider apiKey={GOOGLE_MAPS_API_KEY}>
       <div className="relative w-screen h-screen">
-        <MapView center={mapCenter} markers={markers} zoom={mapZoom} onViewChange={handleMapViewChange} />
+        <MapView
+          center={mapCenter}
+          markers={markers}
+          zoom={mapZoom}
+          onViewChange={handleMapViewChange}
+        />
 
         <div className="absolute top-4 left-4 z-10 w-96">
           <AddressSearch

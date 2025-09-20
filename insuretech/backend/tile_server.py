@@ -11,6 +11,7 @@ Install dependencies: pip install fastapi uvicorn pmtiles jinja2
 Run with: uvicorn tile_server:app --host 0.0.0.0 --port 8000 --reload
 """
 
+import gzip
 import logging
 import math
 import os
@@ -19,11 +20,14 @@ from contextlib import asynccontextmanager
 from typing import Dict, List, Optional, Tuple
 
 import jinja2
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from pmtiles.reader import Reader, MmapSource
 from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import HTMLResponse, Response
 from starlette.templating import Jinja2Templates
+
+from mapbox_vector_tile import decode as decode_mvt
+from shapely.geometry import Point, shape
 
 # --- CONFIGURATION ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -98,6 +102,87 @@ def _tile_xyz_to_lon_lat_bounds(z: int, x: int, y: int) -> Tuple[float, float, f
 def _bbox_intersects(a: Tuple[float, float, float, float], b: Tuple[float, float, float, float]) -> bool:
     """Check if two [min_lon, min_lat, max_lon, max_lat] boxes intersect."""
     return not (a[2] <= b[0] or a[0] >= b[2] or a[3] <= b[1] or a[1] >= b[3])
+
+
+def _lon_lat_to_tile(z: int, lon: float, lat: float) -> Tuple[int, int]:
+    """Convert geographic coordinates to XYZ tile indices for a zoom level."""
+    # Clamp latitude to WebMercator valid range to avoid math overflow.
+    lat = max(min(lat, 85.05112878), -85.05112878)
+    lon = (lon + 180.0) % 360.0 - 180.0
+
+    lat_rad = math.radians(lat)
+    n = 2 ** z
+    x_float = (lon + 180.0) / 360.0 * n
+    y_float = (1.0 - math.log(math.tan(lat_rad) + 1 / math.cos(lat_rad)) / math.pi) / 2.0 * n
+
+    x = int(min(max(x_float, 0), n - 1))
+    y = int(min(max(y_float, 0), n - 1))
+    return x, y
+
+
+def _decompress_tile(tile_data: bytes) -> bytes:
+    """Return decompressed tile bytes, handling gzip-compressed payloads."""
+    if tile_data.startswith(b"\x1f\x8b"):
+        return gzip.decompress(tile_data)
+    return tile_data
+
+
+def _project_point_to_lonlat(x: float, y: float, bbox: Tuple[float, float, float, float], extent: int) -> Tuple[float, float]:
+    lon_min, lat_min, lon_max, lat_max = bbox
+    lon_span = lon_max - lon_min
+    lat_span = lat_max - lat_min
+
+    lon = lon_min + (x / extent) * lon_span
+    lat = lat_max - (y / extent) * lat_span
+    return lon, lat
+
+
+def _transform_geometry_coordinates(coords, bbox, extent):
+    if isinstance(coords, (list, tuple)) and coords and isinstance(coords[0], (int, float)):
+        return _project_point_to_lonlat(coords[0], coords[1], bbox, extent)
+    if isinstance(coords, (list, tuple)):
+        return [
+            _transform_geometry_coordinates(child, bbox, extent)
+            for child in coords
+        ]
+    return coords
+
+
+def _iter_tile_features(tile_bytes: bytes, z: int, x: int, y: int):
+    """Yield (layer_name, feature_dict) pairs for decoded MVT features."""
+    bbox = _tile_xyz_to_lon_lat_bounds(z, x, y)
+    decoded = decode_mvt(tile_bytes)
+
+    for layer_name, layer in decoded.items():
+        if not isinstance(layer, dict):
+            continue
+
+        features = layer.get("features", [])
+        extent = layer.get("extent", 4096) or 4096
+
+        for feature in features:
+            geometry = feature.get("geometry")
+            if geometry and "coordinates" in geometry:
+                transformed = {
+                    "type": geometry.get("type"),
+                    "coordinates": _transform_geometry_coordinates(geometry.get("coordinates"), bbox, extent),
+                }
+                feature = {**feature, "geometry": transformed}
+
+            yield layer_name, feature
+
+
+def _count_vertices(geometry: Dict[str, object]) -> int:
+    coords = geometry.get("coordinates") if geometry else None
+
+    def _count(obj) -> int:
+        if isinstance(obj, (list, tuple)):
+            if obj and isinstance(obj[0], (float, int)):
+                return 1
+            return sum(_count(child) for child in obj)
+        return 0
+
+    return _count(coords)
 
 
 def initialize_pmtiles() -> bool:
@@ -205,14 +290,81 @@ def _select_catalog_entry(z: int, x: int, y: int, dataset: str = "flood_zones") 
     return candidates[0][2]
 
 
+def _dataset_entries(dataset: str) -> List[CatalogEntry]:
+    return [pmtiles_catalog[key] for key in pmtiles_datasets.get(dataset, [])]
+
+
+def find_floodzone_feature(lat: float, lng: float) -> Optional[Dict[str, object]]:
+    """Locate the flood-zone feature covering the provided coordinate."""
+    if not (-90.0 <= lat <= 90.0 and -180.0 <= lng <= 180.0):
+        raise ValueError("Latitude must be between -90 and 90 and longitude between -180 and 180.")
+
+    entries = _dataset_entries("flood_zones")
+    if not entries:
+        raise RuntimeError("Flood zone dataset is not loaded.")
+
+    min_zoom = int(min(entry["min_zoom"] for entry in entries))
+    max_zoom = int(max(entry["max_zoom"] for entry in entries))
+
+    point = Point(lng, lat)
+    best_match: Optional[Dict[str, object]] = None
+    best_score: Tuple[int, int] = (-1, -1)
+
+    for z in range(max_zoom, min_zoom - 1, -1):
+        tile_x, tile_y = _lon_lat_to_tile(z, lng, lat)
+        entry = _select_catalog_entry(z, tile_x, tile_y)
+        if entry is None:
+            continue
+
+        reader: Reader = entry["reader"]  # type: ignore[index]
+        tile_data = reader.get(z, tile_x, tile_y)
+        if tile_data is None:
+            continue
+
+        tile_bytes = _decompress_tile(tile_data)
+
+        try:
+            feature_iter = _iter_tile_features(tile_bytes, z, tile_x, tile_y)
+        except Exception as exc:  # pragma: no cover - guard against corrupt tiles
+            logging.exception("Failed to decode tile %s/%s/%s: %s", z, tile_x, tile_y, exc)
+            continue
+
+        for layer_name, feature in feature_iter:
+            geometry = feature.get("geometry")
+            if not geometry:
+                continue
+
+            try:
+                geom = shape(geometry)
+            except Exception as exc:  # pragma: no cover - invalid geometry
+                logging.debug("Invalid geometry in tile %s/%s/%s: %s", z, tile_x, tile_y, exc)
+                continue
+
+            if geom.is_empty:
+                continue
+
+            if geom.covers(point):
+                vertex_count = _count_vertices(geometry)
+                score = (vertex_count, z)
+
+                if best_match is None or score > best_score:
+                    best_match = {
+                        "layer": layer_name,
+                        "properties": feature.get("properties", {}),
+                        "geometry": geometry,
+                        "tile": {"z": z, "x": tile_x, "y": tile_y},
+                        "variant": entry["key"],
+                    }
+                    best_score = score
+
+    return best_match
+
+
 def get_tile_data(z: int, x: int, y: int) -> Tuple[Optional[bytes], Optional[str]]:
     """Get tile data from the loaded PMTiles archives."""
     entry = _select_catalog_entry(z, x, y)
     if entry is None:
         return None, None
-
-
-    print('entry', entry)
 
     reader: Reader = entry["reader"]  # type: ignore[index]
     tile_data = reader.get(z, x, y)
@@ -496,7 +648,33 @@ async def get_info(request: Request):
     except Exception as e:  # pragma: no cover - surfaces in API response
         raise HTTPException(status_code=500, detail=f"Error reading metadata: {e}")
 
+
+@app.get("/api/v1/floodzone")
+async def get_floodzone(
+    lat: float = Query(..., description="Latitude in decimal degrees"),
+    lng: float = Query(..., description="Longitude in decimal degrees"),
+):
+    try:
+        match = find_floodzone_feature(lat, lng)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    if match is None:
+        raise HTTPException(status_code=404, detail="No flood zone covers the provided location.")
+
+    return {
+        "location": {"lat": lat, "lng": lng},
+        # "layer": match["layer"],
+        # "variant": match["variant"],
+        "tile": match["tile"],
+        "properties": match["properties"],
+        # "geometry": match["geometry"],
+    }
+
+
 # --- MAIN EXECUTION ---
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("pmtiles_server:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("tile_server:app", host="0.0.0.0", port=8000, reload=True)
