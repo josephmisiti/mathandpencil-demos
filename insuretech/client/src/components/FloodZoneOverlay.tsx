@@ -1,63 +1,81 @@
-import { useEffect, useRef } from "react";
+import { GoogleMapsOverlay } from "@deck.gl/google-maps";
+import { MVTLayer, GeoJsonLayer } from "deck.gl";
+import { MVTLoader } from "@loaders.gl/mvt";
 import { useMap } from "@vis.gl/react-google-maps";
+import { useEffect, useState } from "react";
 
 type FloodZoneOverlayProps = {
   enabled: boolean;
-  opacity?: number;
 };
 
-const TILE_URL_TEMPLATE = "http://localhost:3005/tiles/{z}/{x}/{y}";
+const TILE_URL = "http://localhost:3005/tiles/{z}/{x}/{y}";
 
-const buildTileUrl = (zoom: number, x: number, y: number) => {
-  const tileRange = 1 << zoom;
-  if (y < 0 || y >= tileRange) return "";
-  const wrappedX = ((x % tileRange) + tileRange) % tileRange;
-
-  return TILE_URL_TEMPLATE.replace("{z}", zoom.toString())
-    .replace("{x}", wrappedX.toString())
-    .replace("{y}", y.toString());
+// Styling function for the flood zone polygons
+const getFillColor = (d: any) => {
+  const zone = d.properties.FLD_ZONE;
+  switch (zone) {
+    case "A":
+    case "AE":
+    case "AH":
+    case "AO":
+      return [59, 130, 246, 180]; // blue-500 with opacity
+    case "V":
+    case "VE":
+      return [239, 68, 68, 190]; // red-500 with opacity
+    case "X":
+      if (d.properties.ZONE_SUBTY?.includes("0.2")) {
+        return [249, 115, 22, 160]; // orange-500 with opacity
+      }
+      return [0, 0, 0, 0]; // Do not render minimal flood hazard 'X' zones
+    default:
+      return [168, 162, 158, 130]; // stone-400 with opacity for other zones
+  }
 };
 
-export default function FloodZoneOverlay({
-  enabled,
-  opacity = 0.7
-}: FloodZoneOverlayProps) {
+export default function FloodZoneOverlay({ enabled }: FloodZoneOverlayProps) {
   const map = useMap();
-  const overlayRef = useRef<google.maps.ImageMapType | null>(null);
+  const [overlay, setOverlay] = useState<GoogleMapsOverlay | null>(null);
 
+  // Effect for creating and cleaning up the overlay
   useEffect(() => {
     if (!map) return;
 
-    const removeOverlay = () => {
-      if (!overlayRef.current) return;
-      const overlays = map.overlayMapTypes;
-      for (let i = overlays.getLength() - 1; i >= 0; i -= 1) {
-        if (overlays.getAt(i) === overlayRef.current) {
-          overlays.removeAt(i);
-        }
-      }
-      overlayRef.current = null;
+    const instance = new GoogleMapsOverlay({ layers: [] });
+    instance.setMap(map);
+    setOverlay(instance);
+
+    return () => {
+      instance.setMap(null);
     };
+  }, [map]);
 
-    if (!enabled) {
-      removeOverlay();
-      return removeOverlay;
-    }
+  // Effect for updating layers based on the 'enabled' prop
+  useEffect(() => {
+    if (!overlay) return;
 
-    removeOverlay();
+    const layers = enabled
+      ? [
+          new MVTLayer({
+            id: "flood-zones",
+            data: TILE_URL,
+            binary: true,
+            minZoom: 0,
+            maxZoom: 18,
+            getFillColor: getFillColor,
+            stroked: false,
+            filled: true,
+            // Explicitly use MVTLoader and render with GeoJsonLayer
+            loaders: [MVTLoader],
+            renderSubLayers: (props) => {
+              // Simplified to match working example
+              return new GeoJsonLayer(props);
+            },
+          }),
+        ]
+      : [];
 
-    const mapType = new google.maps.ImageMapType({
-      name: "Flood Zones",
-      tileSize: new google.maps.Size(256, 256),
-      opacity,
-      getTileUrl: (coord, zoom) => buildTileUrl(zoom, coord.x, coord.y)
-    });
-
-    overlayRef.current = mapType;
-    map.overlayMapTypes.push(mapType);
-
-    return removeOverlay;
-  }, [enabled, map, opacity]);
+    overlay.setProps({ layers });
+  }, [overlay, enabled]);
 
   return null;
 }

@@ -1,7 +1,3 @@
-app:
-	yarn dev
-
-
 code:
 	claude
 

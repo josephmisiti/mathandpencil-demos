@@ -1,14 +1,18 @@
 #!/usr/bin/env python3
 """
-Simple Working PMTiles Server
-No TiTiler dependencies, just FastAPI + PMTiles
+Simple Working PMTiles Server (Single File Version)
+No TiTiler dependencies, just FastAPI + PMTiles.
+This version is refactored to serve a single, consolidated PMTiles file
+and uses the modern 'lifespan' event handler.
+
 Install dependencies: pip install fastapi uvicorn pmtiles jinja2
-Run with: uvicorn app:app --host 0.0.0.0 --port 8000 --reload
+Run with: uvicorn pmtiles_server:app --host 0.0.0.0 --port 8000 --reload
 """
 
 import logging
 import os
 import traceback
+from contextlib import asynccontextmanager
 from typing import Dict, Optional, Tuple
 
 import jinja2
@@ -18,120 +22,78 @@ from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import HTMLResponse, Response
 from starlette.templating import Jinja2Templates
 
-# PMTiles file configuration
+# --- CONFIGURATION ---
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+PMTILES_FILE_PATH = os.path.join(BASE_DIR, "source", "NFHL_02_20250811_z10_16.pmtiles")
+
 PMTILES_FILES = {
-    "z0_10": "/Users/josephmisiti/mathandpencil/projects/mathandpencil-demos/insuretech/backend/source/NFHL_02_20250811_z0_10.pmtiles",
-    "z10_16": "/Users/josephmisiti/mathandpencil/projects/mathandpencil-demos/insuretech/backend/source/NFHL_02_20250811_z10_16.pmtiles", 
-    "z18": "/Users/josephmisiti/mathandpencil/projects/mathandpencil-demos/insuretech/backend/source/NFHL_02_20250811_z18.pmtiles"
+    "flood_zones": PMTILES_FILE_PATH,
 }
 
 # Global PMTiles readers and file handles
 pmtiles_readers: Dict[str, Reader] = {}
 pmtiles_file_handles: Dict[str, object] = {}
 
-def get_pmtiles_file_for_zoom(zoom_level: int) -> str:
-    """Determine which PMTiles file to use based on zoom level"""
-    if zoom_level <= 10:
-        return "z0_10"
-    elif zoom_level <= 16:
-        return "z10_16"
-    else:
-        return "z18"
-
 def initialize_pmtiles() -> bool:
-    """Initialize all PMTiles readers"""
+    """Initialize all PMTiles readers from the configuration."""
     global pmtiles_readers, pmtiles_file_handles
     
-    success_count = 0
+    key, file_path = next(iter(PMTILES_FILES.items()))
+
+    if not os.path.exists(file_path):
+        print("="*80)
+        print(f"❌ FATAL ERROR: PMTiles file not found at the configured path.")
+        print(f"   Checked Path: {file_path}")
+        print("   Please ensure the file exists and the path is correct.")
+        print("="*80)
+        raise FileNotFoundError(f"PMTiles file not found: {file_path}")
     
-    for key, file_path in PMTILES_FILES.items():
-        if not os.path.exists(file_path):
-            print(f"Warning: PMTiles file not found: {file_path}")
-            continue
+    try:
+        file_handle = open(file_path, "rb")
+        reader = Reader(MmapSource(file_handle))
         
-        try:
-            # Open the file and create a Reader with MmapSource
-            file_handle = open(file_path, "rb")
-            reader = Reader(MmapSource(file_handle))
-            
-            pmtiles_file_handles[key] = file_handle
-            pmtiles_readers[key] = reader
-            
-            print(f"✓ Successfully loaded: {key} -> {os.path.basename(file_path)}")
-            success_count += 1
-            
-        except Exception as e:
-            print(f"✗ Error loading {file_path}: {e}")
-            if key in pmtiles_file_handles:
-                pmtiles_file_handles[key].close()
-                del pmtiles_file_handles[key]
-    
-    if success_count == 0:
-        print("❌ No PMTiles files could be loaded!")
+        pmtiles_file_handles[key] = file_handle
+        pmtiles_readers[key] = reader
+        
+        print(f"✓ Successfully loaded: {key} -> {os.path.basename(file_path)}")
+        return True
+        
+    except Exception as e:
+        print(f"✗ Error loading {file_path}: {e}")
+        if key in pmtiles_file_handles:
+            pmtiles_file_handles[key].close()
+            del pmtiles_file_handles[key]
         return False
-        
-    print(f"🎉 Successfully loaded {success_count} PMTiles files")
-    return True
 
 def cleanup_pmtiles():
-    """Clean up PMTiles resources"""
-    global pmtiles_file_handles, pmtiles_readers
+    """Clean up PMTiles resources on shutdown."""
+    print("Shutting down and closing PMTiles file handles...")
+    global pmtiles_file_handles
     for key, file_handle in pmtiles_file_handles.items():
         if file_handle:
             file_handle.close()
     pmtiles_file_handles.clear()
     pmtiles_readers.clear()
+    print("Cleanup complete.")
 
 def get_tile_data(z: int, x: int, y: int) -> Tuple[Optional[bytes], Optional[str]]:
-    """Get tile data from appropriate PMTiles file"""
+    """Get tile data from the loaded PMTiles file."""
     if not pmtiles_readers:
         return None, None
     
-    # Determine which PMTiles file to use
-    file_key = get_pmtiles_file_for_zoom(z)
-    
-    if file_key not in pmtiles_readers:
-        # Try to find an available reader as fallback
-        available_keys = list(pmtiles_readers.keys())
-        if not available_keys:
-            return None, None
-        file_key = available_keys[0]
-    
-    reader = pmtiles_readers[file_key]
-    
-    # Get tile data from PMTiles
+    reader = next(iter(pmtiles_readers.values()))
     tile_data = reader.get(z, x, y)
     
     if tile_data is None:
-        # Try other readers as fallback
-        for fallback_key, fallback_reader in pmtiles_readers.items():
-            if fallback_key != file_key:
-                tile_data = fallback_reader.get(z, x, y)
-                if tile_data is not None:
-                    break
-        
-        if tile_data is None:
-            return None, None
+        return None, None
     
-    # Determine content type based on tile format
-    content_type = "application/octet-stream"
-    
-    if tile_data.startswith(b'\x1f\x8b'):  # Gzipped
-        content_type = "application/x-protobuf"
-    elif tile_data.startswith(b'\x08') or tile_data.startswith(b'\x12'):  # MVT magic bytes
-        content_type = "application/x-protobuf"
-    elif tile_data.startswith(b'\x89PNG'):  # PNG
-        content_type = "image/png"
-    elif tile_data.startswith(b'\xff\xd8'):  # JPEG
-        content_type = "image/jpeg"
-    elif tile_data.startswith(b'<'):  # Might be SVG
-        content_type = "image/svg+xml"
-    
+    content_type = "application/vnd.mapbox-vector-tile"
     return tile_data, content_type
 
-# Setup Jinja2 templates
+# --- TEMPLATES ---
+
 jinja2_env = jinja2.Environment(
-    autoescape=True, 
+    autoescape=True,
     loader=jinja2.DictLoader({
         "index.html": """
 <!DOCTYPE html>
@@ -162,14 +124,12 @@ jinja2_env = jinja2.Environment(
 <body>
     <div class="container">
         <h1>🗺️ PMTiles Tile Server</h1>
-        <p class="subtitle">High-performance tile server for PMTiles using FastAPI</p>
-        
+        <p class="subtitle">High-performance tile server for a single PMTiles file using FastAPI.</p>
         <div class="status">
-            <strong>✅ Server Status:</strong> Running with {{ loaded_count }} PMTiles files loaded
+            <strong>✅ Server Status:</strong> Running with {{ loaded_count }} PMTiles file(s) loaded.
         </div>
-        
         <div class="file-list">
-            <h3>📁 Loaded PMTiles Files:</h3>
+            <h3>📁 Loaded PMTiles File:</h3>
             {% for key, info in files.items() %}
             <div class="file-item">
                 <strong>{{ key }}</strong>: {{ info.filename }} 
@@ -177,33 +137,23 @@ jinja2_env = jinja2.Environment(
             </div>
             {% endfor %}
         </div>
-        
         <div style="text-align: center; margin: 30px 0;">
             <a href="{{ api_root }}/map" class="btn btn-success">🌍 Open Map Viewer</a>
             <a href="{{ api_root }}/docs" class="btn">📚 API Documentation</a>
         </div>
-        
         <div class="endpoints">
             <h3>🔗 Available Endpoints:</h3>
             <div class="endpoint">
-                <strong>Tiles:</strong> <a href="{{ api_root }}/tiles/8/123/345">{{ api_root }}/tiles/{z}/{x}/{y}</a>
-                <div class="endpoint-desc">Get individual map tiles by zoom/x/y coordinates</div>
+                <strong>Tiles:</strong> <a href="{{ api_root }}/tiles/8/82/97">{{ api_root }}/tiles/{z}/{x}/{y}</a>
+                <div class="endpoint-desc">Get individual map tiles by zoom/x/y coordinates.</div>
             </div>
-            <div class="endpoint">
-                <strong>Map Viewer:</strong> <a href="{{ api_root }}/map">{{ api_root }}/map</a>
-                <div class="endpoint-desc">Interactive map viewer with your PMTiles data</div>
-            </div>
-            <div class="endpoint">
-                <strong>Metadata:</strong> <a href="{{ api_root }}/metadata">{{ api_root }}/metadata</a>
-                <div class="endpoint-desc">PMTiles metadata from all loaded files</div>
-            </div>
-            <div class="endpoint">
-                <strong>Info:</strong> <a href="{{ api_root }}/info">{{ api_root }}/info</a>
-                <div class="endpoint-desc">Combined bounds and zoom level information</div>
+             <div class="endpoint">
+                <strong>Info / TileJSON:</strong> <a href="{{ api_root }}/info">{{ api_root }}/info</a>
+                <div class="endpoint-desc">Combined bounds, zoom levels, and TileJSON metadata.</div>
             </div>
             <div class="endpoint">
                 <strong>Health Check:</strong> <a href="{{ api_root }}/health">{{ api_root }}/health</a>
-                <div class="endpoint-desc">Server health and file status</div>
+                <div class="endpoint-desc">Server health and file status.</div>
             </div>
         </div>
     </div>
@@ -214,151 +164,72 @@ jinja2_env = jinja2.Environment(
 <!DOCTYPE html>
 <html>
 <head>
-    <title>PMTiles Map Viewer</title>
+    <title>PMTiles Vector Map Viewer</title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <style>
-        body { margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif; }
-        #map { height: 100vh; }
-        .info { 
-            position: absolute; 
-            top: 15px; 
-            right: 15px; 
-            background: rgba(255,255,255,0.95); 
-            padding: 20px; 
-            border-radius: 10px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.15);
-            z-index: 1000;
-            max-width: 320px;
-            backdrop-filter: blur(10px);
-        }
-        .info h3 { margin: 0 0 15px 0; color: #2c3e50; font-size: 18px; }
-        .info-section { margin: 15px 0; }
-        .info-section h4 { margin: 0 0 8px 0; color: #34495e; font-size: 14px; font-weight: 600; }
-        .file-item { font-size: 12px; color: #7f8c8d; margin: 4px 0; }
-        .links a { display: inline-block; margin: 4px 8px 4px 0; padding: 6px 12px; background: #007bff; color: white; text-decoration: none; border-radius: 4px; font-size: 12px; }
-        .links a:hover { background: #0056b3; }
-        .loading {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            background: rgba(255,255,255,0.95);
-            padding: 30px 40px;
-            border-radius: 10px;
-            font-size: 16px;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.15);
-            z-index: 2000;
-        }
-        .coordinates {
-            position: absolute;
-            bottom: 10px;
-            left: 10px;
-            background: rgba(0,0,0,0.7);
-            color: white;
-            padding: 8px 12px;
-            border-radius: 6px;
-            font-size: 12px;
-            z-index: 1000;
-        }
+        body { margin: 0; padding: 0; font-family: sans-serif; }
+        #map { height: 100vh; background: #f0f0f0; }
     </style>
 </head>
 <body>
     <div id="map"></div>
-    <div id="loading" class="loading">🗺️ Loading map...</div>
-    <div class="coordinates" id="coordinates">Click on map to see coordinates</div>
-    <div class="info">
-        <h3>🗺️ PMTiles Viewer</h3>
-        
-        <div class="info-section">
-            <h4>📁 Files Loaded:</h4>
-            {% for key, info in files.items() %}
-            <div class="file-item">• {{ key }}: z{{ info.minzoom }}-{{ info.maxzoom }}</div>
-            {% endfor %}
-        </div>
-        
-        <div class="info-section">
-            <h4>🔗 Links:</h4>
-            <div class="links">
-                <a href="{{ api_root }}/docs" target="_blank">API Docs</a>
-                <a href="{{ api_root }}/info" target="_blank">Info</a>
-                <a href="{{ api_root }}/health" target="_blank">Health</a>
-                <a href="{{ api_root }}/" target="_blank">Home</a>
-            </div>
-        </div>
-    </div>
     
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/protomaps-leaflet@latest/dist/protomaps-leaflet.min.js"></script>
+
     <script>
-        document.getElementById('loading').style.display = 'block';
-        
-        // Initialize map
-        var map = L.map('map').setView([39.8283, -98.5795], 4);
-        
-        // Add OpenStreetMap base layer
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '© OpenStreetMap contributors'
-        }).addTo(map);
-        
-        // Add PMTiles overlay
-        var pmtilesLayer = L.tileLayer('{{ api_root }}/tiles/{z}/{x}/{y}', {
-            attribution: 'PMTiles Data',
-            opacity: 0.8
-        }).addTo(map);
-        
-        // Show coordinates on click
-        map.on('click', function(e) {
-            var lat = e.latlng.lat.toFixed(6);
-            var lng = e.latlng.lng.toFixed(6);
-            var zoom = map.getZoom();
-            document.getElementById('coordinates').innerHTML = 
-                `Lat: ${lat}, Lng: ${lng}, Zoom: ${zoom}`;
-        });
-        
-        // Hide loading indicator when map is ready
-        map.whenReady(function() {
-            document.getElementById('loading').style.display = 'none';
-        });
-        
-        // Try to get bounds and zoom to them
-        fetch('{{ api_root }}/info')
-            .then(response => response.json())
-            .then(data => {
-                console.log('PMTiles info:', data);
-                if (data.overall_bounds) {
-                    var bounds = data.overall_bounds;
-                    console.log('Setting overall bounds:', bounds);
-                    map.fitBounds([
-                        [bounds[1], bounds[0]], // SW corner [lat, lng]
-                        [bounds[3], bounds[2]]  // NE corner [lat, lng]
-                    ]);
+        window.onload = function () {
+            const map = L.map('map');
+  
+            // Light base map
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png', {
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
+            }).addTo(map);
+
+            // --- VECTOR TILE LAYER ---
+            const floodZoneUrl = '{{ api_root }}/tiles/{z}/{x}/{y}';
+
+            // Using the correct function call for this library version
+            const floodZoneLayer = protomaps.leafletLayer({
+                url: floodZoneUrl,
+                paint: (feature) => {
+                    const zone = feature.props.FLD_ZONE;
+                    if (zone === 'A' || zone === 'AE' || zone === 'AH' || zone === 'AO') {
+                        return { color: "#3b82f6", opacity: 0.5 };
+                    } else if (zone === 'V' || zone === 'VE') {
+                        return { color: "#ef4444", opacity: 0.6 };
+                    } else if (zone === 'X') {
+                        const subty = feature.props.ZONE_SUBTY;
+                        if (subty && subty.includes("0.2")) {
+                           return { color: "#f97316", opacity: 0.4 };
+                        }
+                    }
+                    return { color: "#a8a29e", opacity: 0.3 };
                 }
-                document.getElementById('loading').style.display = 'none';
-            })
-            .catch(err => {
-                console.log('Could not load PMTiles info:', err);
-                map.setView([39.8283, -98.5795], 4);
-                document.getElementById('loading').style.display = 'none';
             });
-            
-        // Add tile loading feedback
-        var tileCount = 0;
-        pmtilesLayer.on('tileloadstart', function() {
-            tileCount++;
-        });
-        
-        pmtilesLayer.on('tileload', function() {
-            tileCount--;
-            if (tileCount === 0) {
-                document.getElementById('loading').style.display = 'none';
-            }
-        });
-        
-        pmtilesLayer.on('tileerror', function(error) {
-            console.log('Tile error:', error);
-            tileCount--;
-        });
+
+            floodZoneLayer.addTo(map);
+
+            // Fetch info and zoom to data bounds
+            fetch('{{ api_root }}/info')
+                .then(response => response.json())
+                .then(data => {
+                    if (data && data.bounds) {
+                        const bounds = [[data.bounds[1], data.bounds[0]], [data.bounds[3], data.bounds[2]]];
+                        map.fitBounds(bounds);
+                    } else {
+                        // Centered on Alaska
+                        map.setView([64, -150], 4);
+                    }
+                })
+                .catch(err => {
+                    console.error('Could not load PMTiles info:', err);
+                    // Centered on Alaska
+                    map.setView([64, -150], 4);
+                });
+        };
     </script>
 </body>
 </html>
@@ -367,37 +238,31 @@ jinja2_env = jinja2.Environment(
 )
 templates = Jinja2Templates(env=jinja2_env)
 
-# Initialize PMTiles on startup
-print("🚀 Starting PMTiles Server...")
-print("📂 Looking for PMTiles files:")
-for key, path in PMTILES_FILES.items():
-    print(f"   {key}: {path}")
+# --- LIFESPAN MANAGER ---
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Handles startup and shutdown events for the application."""
+    print("🚀 Starting PMTiles Server...")
+    initialize_pmtiles()
+    yield
+    cleanup_pmtiles()
 
-if not initialize_pmtiles():
-    print("❌ Failed to initialize any PMTiles files. Exiting.")
-    exit(1)
-
-# Create FastAPI app
+# --- APP SETUP ---
 app = FastAPI(
     title="PMTiles Tile Server",
-    description="High-performance tile server for PMTiles",
-    version="1.0.0",
+    description="High-performance tile server for a single PMTiles file.",
+    version="1.5.2", # Incremented version
+    lifespan=lifespan,
 )
-
-# Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["GET"],
-    allow_headers=["*"],
+    allow_origins=["*"], allow_credentials=True, allow_methods=["GET"], allow_headers=["*"],
 )
 
-# Routes
+# --- API ROUTES ---
+
 @app.get("/", response_class=HTMLResponse)
 async def landing(request: Request):
-    """PMTiles server landing page"""
-    # Get file info for template
     files_info = {}
     for key, reader in pmtiles_readers.items():
         header = reader.header()
@@ -406,190 +271,75 @@ async def landing(request: Request):
             "minzoom": header.get('min_zoom', 0),
             "maxzoom": header.get('max_zoom', 18)
         }
-    
     return templates.TemplateResponse(
         "index.html",
-        {
-            "request": request,
-            "api_root": str(request.base_url).rstrip("/"),
-            "files": files_info,
-            "loaded_count": len(pmtiles_readers),
-        },
+        {"request": request, "api_root": str(request.base_url).rstrip("/"), "files": files_info, "loaded_count": len(pmtiles_readers)},
     )
 
 @app.get("/map", response_class=HTMLResponse)
 async def map_viewer(request: Request):
-    """Map viewer page"""
-    # Get file info for template
-    files_info = {}
-    for key, reader in pmtiles_readers.items():
-        header = reader.header()
-        files_info[key] = {
-            "filename": os.path.basename(PMTILES_FILES[key]),
-            "minzoom": header.get('min_zoom', 0),
-            "maxzoom": header.get('max_zoom', 18)
-        }
-    
-    return templates.TemplateResponse(
-        "map.html",
-        {
-            "request": request,
-            "api_root": str(request.base_url).rstrip("/"),
-            "files": files_info,
-        },
-    )
+    return templates.TemplateResponse("map.html", {"request": request, "api_root": str(request.base_url).rstrip("/")})
 
-@app.get("/tiles/{z}/{x}/{y}")
+@app.get("/tiles/{z}/{x}/{y}", response_class=Response)
 async def get_tile(z: int, x: int, y: int):
-    """Serve individual tiles from appropriate PMTiles file"""
     try:
         tile_data, content_type = get_tile_data(z, x, y)
-        
         if tile_data is None:
-            # Return 204 No Content for missing tiles
             return Response(status_code=204)
         
-        headers = {"Cache-Control": "public, max-age=3600"}
-        if content_type == "application/x-protobuf":
-            headers['Content-Encoding'] = 'gzip'
-        
-        return Response(
-            content=tile_data,
-            media_type=content_type,
-            headers=headers
-        )
-        
+        headers = {
+            "Cache-Control": "public, max-age=86400",
+            "Content-Type": "application/vnd.mapbox-vector-tile",
+        }
+
+        # PMTiles stores all vector tiles gzip-compressed; advertise that so
+        # browsers transparently decompress them before deck.gl parses bytes.
+        if tile_data.startswith(b"\x1f\x8b"):
+            headers["Content-Encoding"] = "gzip"
+
+        return Response(content=tile_data, headers=headers)
     except Exception as e:
         print(f"Error serving tile {z}/{x}/{y}: {e}")
-        return Response(status_code=204)
-
-@app.get("/metadata")
-async def get_metadata():
-    """Get PMTiles metadata from all files"""
-    if not pmtiles_readers:
-        raise HTTPException(status_code=500, detail="No PMTiles files initialized")
-    
-    try:
-        all_metadata = {}
-        
-        for key, reader in pmtiles_readers.items():
-            header = reader.header()
-            metadata = reader.metadata()
-            
-            # Convert any non-serializable objects to strings (like enums)
-            serializable_header = {}
-            for hkey, value in header.items():
-                if hasattr(value, 'name'):  # Enum objects have a 'name' attribute
-                    serializable_header[hkey] = value.name
-                else:
-                    serializable_header[hkey] = value
-            
-            all_metadata[key] = {
-                "header": serializable_header,
-                "metadata": metadata
-            }
-        
-        return all_metadata
-    except Exception as e:
-        raise HTTPException(status_code=500, detail="Error getting metadata")
+        traceback.print_exc()
+        return Response(status_code=500, content=f"Error serving tile: {e}")
 
 @app.get("/info")
-async def get_info():
-    """Get PMTiles info (bounds, zoom levels, etc.) from all files"""
+async def get_info(request: Request):
     if not pmtiles_readers:
-        raise HTTPException(status_code=500, detail="No PMTiles files initialized")
+        raise HTTPException(status_code=404, detail="PMTiles file not loaded")
     
     try:
-        combined_info = {
-            "files": {},
-            "overall_bounds": None,
-            "overall_minzoom": None,
-            "overall_maxzoom": None
+        reader = next(iter(pmtiles_readers.values()))
+        metadata = reader.metadata() or {}
+        header = reader.header()
+
+        bounds = [
+            header.get("min_lon_e7", 0) / 1e7,
+            header.get("min_lat_e7", 0) / 1e7,
+            header.get("max_lon_e7", 0) / 1e7,
+            header.get("max_lat_e7", 0) / 1e7,
+        ]
+        center = [
+            header.get("center_lon_e7", 0) / 1e7,
+            header.get("center_lat_e7", 0) / 1e7,
+            header.get("center_zoom", 0),
+        ]
+
+        tilejson = {
+            "tilejson": "2.2.0",
+            "name": metadata.get("name", "Flood Zones"),
+            "tiles": [f"{str(request.base_url).rstrip('/')}/tiles/{{z}}/{{x}}/{{y}}"],
+            "minzoom": header.get("min_zoom", 0),
+            "maxzoom": header.get("max_zoom", 18),
+            "bounds": bounds,
+            "center": center,
+            "vector_layers": metadata.get("vector_layers", [])
         }
-        
-        all_bounds = []
-        all_minzooms = []
-        all_maxzooms = []
-        
-        for key, reader in pmtiles_readers.items():
-            header = reader.header()
-            metadata = reader.metadata()
-            
-            # Convert any non-serializable objects to strings (like enums)
-            serializable_header = {}
-            for hkey, value in header.items():
-                if hasattr(value, 'name'):  # Enum objects have a 'name' attribute
-                    serializable_header[hkey] = value.name
-                else:
-                    serializable_header[hkey] = value
-            
-            # Extract bounds and zoom info
-            bounds = serializable_header.get('bounds')
-            minzoom = serializable_header.get('min_zoom', 0)
-            maxzoom = serializable_header.get('max_zoom', 18)
-            
-            file_info = {
-                "minzoom": minzoom,
-                "maxzoom": maxzoom,
-                "header": serializable_header,
-                "metadata": metadata
-            }
-            
-            if bounds:
-                file_info["bounds"] = bounds
-                all_bounds.append(bounds)
-            
-            all_minzooms.append(minzoom)
-            all_maxzooms.append(maxzoom)
-            
-            combined_info["files"][key] = file_info
-        
-        # Calculate overall bounds and zoom levels
-        if all_bounds:
-            # Combine all bounds to get overall extent
-            west = min(b[0] for b in all_bounds)
-            south = min(b[1] for b in all_bounds)
-            east = max(b[2] for b in all_bounds)
-            north = max(b[3] for b in all_bounds)
-            combined_info["overall_bounds"] = [west, south, east, north]
-        
-        combined_info["overall_minzoom"] = min(all_minzooms) if all_minzooms else 0
-        combined_info["overall_maxzoom"] = max(all_maxzooms) if all_maxzooms else 18
-        
-        return combined_info
+        return tilejson
     except Exception as e:
-        raise HTTPException(status_code=500, detail="Error getting info")
+        raise HTTPException(status_code=500, detail=f"Error reading metadata: {e}")
 
-@app.get("/health")
-async def health_check():
-    """Health check endpoint"""
-    loaded_files = list(pmtiles_readers.keys())
-    status = "healthy" if loaded_files else "unhealthy"
-    
-    file_status = {}
-    for key, path in PMTILES_FILES.items():
-        file_status[key] = {
-            "path": path,
-            "exists": os.path.exists(path),
-            "loaded": key in pmtiles_readers
-        }
-    
-    return {
-        "status": status,
-        "loaded_files": loaded_files,
-        "file_status": file_status
-    }
-
-# Cleanup on shutdown
-@app.on_event("shutdown")
-def shutdown_event():
-    cleanup_pmtiles()
-
+# --- MAIN EXECUTION ---
 if __name__ == "__main__":
     import uvicorn
-    print("🌍 Server starting on http://localhost:8000")
-    print("📍 Endpoints:")
-    print("   • Map viewer: http://localhost:8000/map")
-    print("   • API docs: http://localhost:8000/docs") 
-    print("   • Health: http://localhost:8000/health")
-    uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("pmtiles_server:app", host="0.0.0.0", port=8000, reload=True)
