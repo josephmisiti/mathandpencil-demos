@@ -384,7 +384,7 @@ jinja2_env = jinja2.Environment(
         <div class="endpoints">
             <h3>🔗 Available Endpoints:</h3>
             <div class="endpoint">
-                <strong>Tiles:</strong> <a href="{{ api_root }}/tiles/8/82/97">{{ api_root }}/tiles/{z}/{x}/{y}</a>
+                <strong>Tiles:</strong> <a href="{{ api_root }}/tiles/floodzone/8/82/97">{{ api_root }}/tiles/floodzone/{z}/{x}/{y}</a>
                 <div class="endpoint-desc">Get individual map tiles by zoom/x/y coordinates.</div>
             </div>
              <div class="endpoint">
@@ -429,7 +429,7 @@ jinja2_env = jinja2.Environment(
             }).addTo(map);
 
             // --- VECTOR TILE LAYER ---
-            const floodZoneUrl = '{{ api_root }}/tiles/{z}/{x}/{y}';
+            const floodZoneUrl = '{{ api_root }}/tiles/floodzone/{z}/{x}/{y}';
 
             // Using the correct function call for this library version
             const floodZoneLayer = protomaps.leafletLayer({
@@ -524,7 +524,7 @@ async def landing(request: Request):
 async def map_viewer(request: Request):
     return templates.TemplateResponse("map.html", {"request": request, "api_root": str(request.base_url).rstrip("/")})
 
-@app.get("/tiles/{z}/{x}/{y}", response_class=Response)
+@app.get("/tiles/floodzone/{z}/{x}/{y}", response_class=Response)
 async def get_tile(z: int, x: int, y: int):
     try:
         tile_data, content_type = get_tile_data(z, x, y)
@@ -582,7 +582,7 @@ async def get_info(request: Request):
         tilejson = {
             "tilejson": "2.2.0",
             "name": metadata.get("name", "Flood Zones"),
-            "tiles": [f"{str(request.base_url).rstrip('/')}/tiles/{{z}}/{{x}}/{{y}}"],
+            "tiles": [f"{str(request.base_url).rstrip('/')}/tiles/floodzone/{{z}}/{{x}}/{{y}}"],
             "minzoom": min_zoom,
             "maxzoom": max_zoom,
             "bounds": bounds,

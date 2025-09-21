@@ -8,7 +8,7 @@ type FloodZoneOverlayProps = {
   enabled: boolean;
 };
 
-const TILE_URL = "http://localhost:3005/tiles/{z}/{x}/{y}";
+const TILE_URL = "http://localhost:3005/tiles/floodzone/{z}/{x}/{y}";
 
 // Styling function for the flood zone polygons
 const getFillColor = (d: any) => {
