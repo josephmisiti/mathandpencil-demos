@@ -95,6 +95,21 @@ export default function MapView({
     }
   }, [floodZoneEnabled]);
 
+  useEffect(() => {
+    if (!contextMenu) return;
+
+    const handler = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setContextMenu(null);
+      }
+    };
+
+    window.addEventListener("keydown", handler);
+    return () => {
+      window.removeEventListener("keydown", handler);
+    };
+  }, [contextMenu]);
+
   return (
     <div ref={mapContainerRef} className="relative h-screen w-screen">
       <MapControls
