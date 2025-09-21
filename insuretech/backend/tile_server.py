@@ -36,50 +36,10 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # to a PMTiles file on disk; if it is missing it will simply be skipped.
 PMTILES_VARIANTS: List[Dict[str, str]] = [
     {
-        "key": "nfhl_02_z0_10",
+        "key": "nfhl_combined",
         "dataset": "flood_zones",
-        "path": os.path.join(BASE_DIR, "source", "NFHL_02_20250811_z0_10.pmtiles"),
-    },
-    {
-        "key": "nfhl_02_z10_16",
-        "dataset": "flood_zones",
-        "path": os.path.join(BASE_DIR, "source", "NFHL_02_20250811_z10_16.pmtiles"),
-    },
-    {
-        "key": "nfhl_02_z18",
-        "dataset": "flood_zones",
-        "path": os.path.join(BASE_DIR, "source", "NFHL_02_20250811_z18.pmtiles"),
-    },
-    {
-        "key": "nfhl_36_z0_10",
-        "dataset": "flood_zones",
-        "path": os.path.join(BASE_DIR, "source", "NFHL_36_20250819_z0_10.pmtiles"),
-    },
-    {
-        "key": "nfhl_36_z10_16",
-        "dataset": "flood_zones",
-        "path": os.path.join(BASE_DIR, "source", "NFHL_36_20250819_z10_16.pmtiles"),
-    },
-    {
-        "key": "nfhl_36_z18",
-        "dataset": "flood_zones",
-        "path": os.path.join(BASE_DIR, "source", "NFHL_36_20250819_z18.pmtiles"),
-    },
-    {
-        "key": "nfhl_12_z0_10",
-        "dataset": "flood_zones",
-        "path": os.path.join(BASE_DIR, "source", "NFHL_12_20250902_z0_10.pmtiles"),
-    },
-    {
-        "key": "nfhl_12_z10_16",
-        "dataset": "flood_zones",
-        "path": os.path.join(BASE_DIR, "source", "NFHL_12_20250902_z10_16.pmtiles"),
-    },
-    {
-        "key": "nfhl_12_z18",
-        "dataset": "flood_zones",
-        "path": os.path.join(BASE_DIR, "source", "NFHL_12_20250902_z18.pmtiles"),
-    },
+        "path": os.path.join(BASE_DIR, "source", "NFHL_combined.pmtiles"),
+    }
 ]
 
 # Global catalogue of loaded PMTiles variants indexed by their key.

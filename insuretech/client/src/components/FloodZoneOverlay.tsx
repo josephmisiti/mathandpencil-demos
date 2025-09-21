@@ -67,10 +67,10 @@ export default function FloodZoneOverlay({ enabled }: FloodZoneOverlayProps) {
             // Explicitly use MVTLoader and render with GeoJsonLayer
             loaders: [MVTLoader],
             renderSubLayers: (props) => {
-              // Simplified to match working example
+              console.log(props);
               return new GeoJsonLayer(props);
-            },
-          }),
+            }
+          })
         ]
       : [];
 

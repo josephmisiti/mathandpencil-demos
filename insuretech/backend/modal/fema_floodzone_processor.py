@@ -7,7 +7,7 @@ import subprocess
 import tempfile
 
 STORAGE_ROOT = "/cache"
-TARGET_FIPS = "12"
+TARGET_FIPS = "02"
 REQUIRED_SHAPE_FILE_NAME = "S_FLD_HAZ_AR"
 
 storage = modal.Volume.from_name("fema-flood-zone-storage")
@@ -164,10 +164,11 @@ def create_pmtiles(fips: str, fgb_path: str, raw_fgb_path: str):
     # Output paths
     z0_10_path = os.path.join(tiles_dir, f"{state_name}_z0_10.pmtiles")
     z10_16_path = os.path.join(tiles_dir, f"{state_name}_z10_16.pmtiles") 
+    z17_path = os.path.join(tiles_dir, f"{state_name}_z17.pmtiles")
     z18_path = os.path.join(tiles_dir, f"{state_name}_z18.pmtiles")
     
     # Check if already exists
-    if all(os.path.exists(p) for p in [z0_10_path, z10_16_path, z18_path]):
+    if all(os.path.exists(p) for p in [z0_10_path, z10_16_path, z17_path, z18_path]):
         logger.info(f"SKIP: PMTiles already exist for {state_name}")
         return {"fips": fips, "status": "skipped"}
     
@@ -211,7 +212,23 @@ def create_pmtiles(fips: str, fgb_path: str, raw_fgb_path: str):
             )
             run_command(cmd)
             
-            # Create z18 tiles (raw data for high detail)
+            # Create z17 tiles (raw data for high detail)
+            temp_z17 = os.path.join(temp_dir, f"{state_name}_z17.pmtiles")
+            cmd = (
+                f'tippecanoe -Z17 -z17 '
+                f'--maximum-tile-bytes=1000000 '
+                f'--progress-interval=30 '
+                f'--read-parallel '
+                f'--hilbert '
+                f'--coalesce-densest-as-needed '
+                f'--force '
+                f'--output="{temp_z17}" '
+                f'-l floodzones '
+                f'"{temp_raw_fgb}"'
+            )
+            run_command(cmd)
+
+            # Create z18 tiles (raw data for highest detail)
             temp_z18 = os.path.join(temp_dir, f"{state_name}_z18.pmtiles")
             cmd = (
                 f'tippecanoe -Z18 -z18 '
@@ -230,6 +247,7 @@ def create_pmtiles(fips: str, fgb_path: str, raw_fgb_path: str):
             # Copy to storage
             run_command(f"cp '{temp_z0_10}' '{z0_10_path}'")
             run_command(f"cp '{temp_z10_16}' '{z10_16_path}'")
+            run_command(f"cp '{temp_z17}' '{z17_path}'")
             run_command(f"cp '{temp_z18}' '{z18_path}'")
             
             # Commit changes to Modal volume
@@ -237,7 +255,7 @@ def create_pmtiles(fips: str, fgb_path: str, raw_fgb_path: str):
             
             # Verify files were written and get sizes
             tiles_created = []
-            for tile_path in [z0_10_path, z10_16_path, z18_path]:
+            for tile_path in [z0_10_path, z10_16_path, z17_path, z18_path]:
                 if os.path.exists(tile_path):
                     size_mb = os.path.getsize(tile_path) / (1024*1024)
                     logger.info(f"Created: {tile_path} ({size_mb:.1f}MB)")
@@ -245,7 +263,7 @@ def create_pmtiles(fips: str, fgb_path: str, raw_fgb_path: str):
                 else:
                     logger.error(f"Failed to create: {tile_path}")
             
-            if len(tiles_created) != 3:
+            if len(tiles_created) != 4:
                 raise Exception("Not all PMTiles were created successfully")
             
             logger.info(f"SUCCESS: Created all PMTiles for {state_name}")
