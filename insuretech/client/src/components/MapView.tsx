@@ -16,7 +16,7 @@ export default function MapView({
 }: MapProps) {
   const [selectedMarker, setSelectedMarker] = useState<Location | null>(null);
   const [highResEnabled, setHighResEnabled] = useState(false);
-  const [floodZoneEnabled, setFloodZoneEnabled] = useState(true);
+  const [floodZoneEnabled, setFloodZoneEnabled] = useState(false);
   const [highResErrorMessage, setHighResErrorMessage] = useState<string | null>(
     null
   );

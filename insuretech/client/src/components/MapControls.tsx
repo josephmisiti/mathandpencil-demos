@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 interface MapControlsProps {
   highResEnabled: boolean;
@@ -17,7 +17,16 @@ export default function MapControls({
   highResLoading = false,
   highResError = null
 }: MapControlsProps) {
-  const [isOpen, setIsOpen] = useState(false);
+  const STORAGE_KEY = "map-controls-open";
+  const [isOpen, setIsOpen] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return localStorage.getItem(STORAGE_KEY) === "true";
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    localStorage.setItem(STORAGE_KEY, String(isOpen));
+  }, [isOpen]);
 
   const isDisabled = highResLoading;
 
