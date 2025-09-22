@@ -17,9 +17,17 @@ const LEGEND_ITEMS = [
   },
 ];
 
-export default function FloodZoneLegend() {
+type FloodZoneLegendProps = {
+  className?: string;
+};
+
+export default function FloodZoneLegend({ className }: FloodZoneLegendProps = {}) {
+  const positionClasses = className ?? "absolute bottom-4 right-4 z-20";
+  const baseClasses = "w-64 rounded-lg border border-slate-200 bg-white/95 p-4 shadow-lg backdrop-blur";
+  const finalClassName = `${positionClasses} ${baseClasses}`.trim();
+
   return (
-    <aside className="absolute bottom-4 right-4 z-20 w-64 rounded-lg border border-slate-200 bg-white/95 p-4 shadow-lg backdrop-blur">
+    <aside className={finalClassName}>
       <h3 className="mb-3 text-sm font-semibold text-slate-700">Flood Zone Legend</h3>
       <ul className="space-y-2">
         {LEGEND_ITEMS.map((item) => (

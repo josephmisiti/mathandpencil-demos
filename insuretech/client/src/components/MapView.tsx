@@ -8,6 +8,8 @@ import EagleViewOverlay from "./EagleViewOverlay";
 import FloodZoneOverlay from "./FloodZoneOverlay";
 import SloshOverlay from "./SloshOverlay";
 import FloodZoneLegend from "./FloodZoneLegend";
+import SloshLegend from "./SloshLegend";
+import { SLOSH_CATEGORIES, SloshCategory } from "../constants/slosh";
 
 export default function MapView({
   center,
@@ -18,14 +20,15 @@ export default function MapView({
   const [selectedMarker, setSelectedMarker] = useState<Location | null>(null);
   const [highResEnabled, setHighResEnabled] = useState(false);
 const [floodZoneEnabled, setFloodZoneEnabled] = useState(false);
-const SLOSH_CATEGORIES = ["Category1", "Category2", "Category3", "Category4", "Category5"] as const;
-const [sloshEnabled, setSloshEnabled] = useState<Record<string, boolean>>(() => {
-  const initial: Record<string, boolean> = {};
-  SLOSH_CATEGORIES.forEach((category) => {
-    initial[category] = false;
-  });
-  return initial;
-});
+const [sloshEnabled, setSloshEnabled] = useState<Record<SloshCategory, boolean>>(
+  () => {
+    const initial = {} as Record<SloshCategory, boolean>;
+    SLOSH_CATEGORIES.forEach((category) => {
+      initial[category] = false;
+    });
+    return initial;
+  }
+);
   const [highResErrorMessage, setHighResErrorMessage] = useState<string | null>(
     null
   );
@@ -229,7 +232,26 @@ const [sloshEnabled, setSloshEnabled] = useState<Record<string, boolean>>(() => 
           </InfoWindow>
         )}
       </Map>
-      {floodZoneEnabled && <FloodZoneLegend />}
+      {(() => {
+        const sloshVisible = SLOSH_CATEGORIES.some((category) => sloshEnabled[category]);
+        const showAnyLegend = floodZoneEnabled || sloshVisible;
+
+        if (!showAnyLegend) {
+          return null;
+        }
+
+        return (
+          <div className="absolute bottom-4 right-4 z-20 flex flex-col items-end gap-3">
+            {sloshVisible && (
+              <SloshLegend
+                enabledCategories={sloshEnabled}
+                className="relative"
+              />
+            )}
+            {floodZoneEnabled && <FloodZoneLegend className="relative" />}
+          </div>
+        );
+      })()}
       {contextMenu && (
         <div
           className="absolute z-30 min-w-[180px] rounded-md border border-slate-200 bg-white py-1 shadow-lg"
