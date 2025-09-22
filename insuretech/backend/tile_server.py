@@ -446,8 +446,8 @@ def get_tile_data(
 
     reader: Reader = entry["reader"]  # type: ignore[index]
     source_y = y
-    if dataset == "slosh":
-        source_y = (1 << z) - 1 - y
+    # if dataset == "slosh":
+    #     source_y = (1 << z) - 1 - y
 
     tile_data = reader.get(z, x, source_y)
 
@@ -690,6 +690,7 @@ async def get_slosh_tile(
         raise HTTPException(status_code=400, detail="Unknown SLOSH category")
 
     try:
+        print(f"Serving SLOSH tile {category} {z}/{x}/{y}...")
         tile_data, content_type = get_tile_data(
             z,
             x,
