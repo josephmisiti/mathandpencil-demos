@@ -11,6 +11,14 @@ type SloshOverlayProps = {
 const TILE_URL =
   "http://localhost:3005/tiles/slosh/{z}/{x}/{y}?category={category}";
 
+const CATEGORY_COLORS: Record<string, [number, number, number]> = {
+  Category1: [59, 130, 246],
+  Category2: [147, 51, 234],
+  Category3: [249, 115, 22],
+  Category4: [16, 185, 129],
+  Category5: [239, 68, 68]
+};
+
 function loadRasterTile(url: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const image = new Image();
@@ -71,38 +79,65 @@ export default function SloshOverlay({ enabledCategories }: SloshOverlayProps) {
           },
           renderSubLayers: (props) => {
             const { data, tile } = props;
-            if (!data) return null;
-
-            const bbox = tile?.bbox ?? tile?.boundingBox;
-            let boundsArray: [number, number, number, number] | null = null;
-
-            if (Array.isArray(bbox)) {
-              if (bbox.length === 4 && typeof bbox[0] === "number") {
-                const arr = bbox as unknown as number[];
-                boundsArray = [arr[0], arr[1], arr[2], arr[3]];
-              } else if (
-                bbox.length === 2 &&
-                Array.isArray(bbox[0]) &&
-                Array.isArray(bbox[1])
-              ) {
-                const [[minX, minY], [maxX, maxY]] = bbox as unknown as [
-                  number[],
-                  number[]
-                ];
-                boundsArray = [minX, minY, maxX, maxY];
-              }
-            }
-
-            if (!boundsArray) {
+            if (!data || !tile) {
               return null;
             }
 
-            const [minX, minY, maxX, maxY] = boundsArray;
+            const bbox = tile.bbox ?? tile.boundingBox;
+
+            let bounds: [number, number, number, number] | null = null;
+
+            if (bbox) {
+              if (Array.isArray(bbox)) {
+                if (bbox.length === 4 && typeof bbox[0] === "number") {
+                  const [minX, minY, maxX, maxY] = bbox as unknown as [
+                    number,
+                    number,
+                    number,
+                    number
+                  ];
+                  bounds = [minX, minY, maxX, maxY];
+                } else if (
+                  bbox.length === 2 &&
+                  Array.isArray(bbox[0]) &&
+                  Array.isArray(bbox[1])
+                ) {
+                  const [[minX, minY], [maxX, maxY]] = bbox as unknown as [
+                    number[],
+                    number[]
+                  ];
+                  bounds = [minX, minY, maxX, maxY];
+                }
+              } else if (
+                typeof bbox === "object" &&
+                "west" in bbox &&
+                "south" in bbox &&
+                "east" in bbox &&
+                "north" in bbox
+              ) {
+                const { west, south, east, north } = bbox as {
+                  west: number;
+                  south: number;
+                  east: number;
+                  north: number;
+                };
+                bounds = [west, south, east, north];
+              }
+            }
+
+            if (!bounds) {
+              return null;
+            }
+
+            const tintColor = CATEGORY_COLORS[category] ?? [255, 255, 255];
 
             return new BitmapLayer(props, {
               image: data,
-              bounds: [minX, minY, maxX, maxY],
-              opacity: 0.65
+              bounds,
+              data: null,
+              opacity: 0.65,
+              tintColor,
+              transparentColor: [0, 0, 0, 0]
             });
           }
         })
