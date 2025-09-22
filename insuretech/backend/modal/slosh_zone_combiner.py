@@ -72,14 +72,28 @@ def combine_categories():
         logger.info("Creating %s from %s", dst, src)
 
         with tempfile.TemporaryDirectory() as tmp:
+            tmp_warped = Path(tmp) / f"{dst.stem}_3857.tif"
             tmp_mbtiles = Path(tmp) / f"{dst.stem}.mbtiles"
             tmp_pmtiles = Path(tmp) / dst.name
 
-            # Convert raster to MBTiles (WebMercator layout)
+            # Reproject to WebMercator for compatibility with Google tiles
+            warp_cmd = (
+                "gdalwarp"
+                " -t_srs EPSG:3857"
+                " -r bilinear"
+                " -of COG"
+                " -co COMPRESS=LZW"
+                " -co PREDICTOR=2"
+                f" {src} {tmp_warped}"
+            )
+            os.system(warp_cmd)
+
+            # Convert raster to MBTiles with GoogleMapsCompatible scheme
             gdal_cmd = (
                 "gdal_translate"
                 " -of MBTILES"
-                f" {src} {tmp_mbtiles}"
+                " -co TILE_FORMAT=PNG"
+                f" {tmp_warped} {tmp_mbtiles}"
             )
             os.system(gdal_cmd)
 

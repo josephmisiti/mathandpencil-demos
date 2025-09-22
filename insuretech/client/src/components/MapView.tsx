@@ -6,6 +6,7 @@ import MapControls from "./MapControls";
 import { useEagleViewImagery } from "../hooks/useEagleViewImagery";
 import EagleViewOverlay from "./EagleViewOverlay";
 import FloodZoneOverlay from "./FloodZoneOverlay";
+import SloshOverlay from "./SloshOverlay";
 import FloodZoneLegend from "./FloodZoneLegend";
 
 export default function MapView({
@@ -16,7 +17,15 @@ export default function MapView({
 }: MapProps) {
   const [selectedMarker, setSelectedMarker] = useState<Location | null>(null);
   const [highResEnabled, setHighResEnabled] = useState(false);
-  const [floodZoneEnabled, setFloodZoneEnabled] = useState(false);
+const [floodZoneEnabled, setFloodZoneEnabled] = useState(false);
+const SLOSH_CATEGORIES = ["Category1", "Category2", "Category3", "Category4", "Category5"] as const;
+const [sloshEnabled, setSloshEnabled] = useState<Record<string, boolean>>(() => {
+  const initial: Record<string, boolean> = {};
+  SLOSH_CATEGORIES.forEach((category) => {
+    initial[category] = false;
+  });
+  return initial;
+});
   const [highResErrorMessage, setHighResErrorMessage] = useState<string | null>(
     null
   );
@@ -117,6 +126,10 @@ export default function MapView({
         onHighResToggle={handleHighResToggle}
         floodZoneEnabled={floodZoneEnabled}
         onFloodZoneToggle={setFloodZoneEnabled}
+        sloshEnabled={sloshEnabled}
+        onSloshToggle={(category, enabled) =>
+          setSloshEnabled((prev) => ({ ...prev, [category]: enabled }))
+        }
         highResLoading={status === "loading"}
         highResError={highResErrorMessage}
       />
@@ -127,11 +140,11 @@ export default function MapView({
         disableDefaultUI={true}
         zoomControl={true}
         zoomControlOptions={{
-          position: google.maps.ControlPosition.RIGHT_CENTER
+          position: google.maps.ControlPosition.LEFT_CENTER
         }}
         streetViewControl={true}
         streetViewControlOptions={{
-          position: google.maps.ControlPosition.RIGHT_CENTER
+          position: google.maps.ControlPosition.LEFT_CENTER
         }}
         mapTypeControl={true}
         mapTypeControlOptions={{
@@ -193,6 +206,9 @@ export default function MapView({
       >
         <EagleViewOverlay enabled={!!overlayImagery} imagery={overlayImagery} />
         <FloodZoneOverlay enabled={floodZoneEnabled} />
+        <SloshOverlay
+          enabledCategories={SLOSH_CATEGORIES.filter((category) => sloshEnabled[category])}
+        />
         {markers.map((marker) => (
           <Marker
             key={`${marker.lat}-${marker.lng}`}

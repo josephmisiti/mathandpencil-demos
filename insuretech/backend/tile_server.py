@@ -12,6 +12,7 @@ Run with: uvicorn tile_server:app --host 0.0.0.0 --port 8000 --reload
 """
 
 import gzip
+import io
 import logging
 import math
 import os
@@ -27,6 +28,7 @@ from starlette.responses import HTMLResponse, Response
 from starlette.templating import Jinja2Templates
 
 from mapbox_vector_tile import decode as decode_mvt
+# from PIL import Image
 from shapely.geometry import Point, shape
 
 # --- CONFIGURATION ---
@@ -34,19 +36,54 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # Describe the PMTiles archives that should be loaded. Each entry should point
 # to a PMTiles file on disk; if it is missing it will simply be skipped.
+SLOSH_CATEGORIES = [
+    "Category1",
+    "Category2",
+    "Category3",
+    "Category4",
+    "Category5",
+]
+
+SLOSH_CATEGORY_LOOKUP = {
+    category.lower(): category for category in SLOSH_CATEGORIES
+}
+
+for category in SLOSH_CATEGORIES:
+    short = category.replace("Category", "cat").lower()
+    digit = category[-1]
+    SLOSH_CATEGORY_LOOKUP[short] = category
+    SLOSH_CATEGORY_LOOKUP[digit] = category
+
 PMTILES_VARIANTS: List[Dict[str, str]] = [
     {
         "key": "nfhl_combined",
         "dataset": "flood_zones",
         "path": os.path.join(BASE_DIR, "source", "NFHL_combined.pmtiles"),
-    }
+    },
 ]
+
+for category in SLOSH_CATEGORIES:
+    PMTILES_VARIANTS.append(
+        {
+            "key": f"slosh_{category.lower()}",
+            "dataset": "slosh",
+            "category": category,
+            "path": os.path.join(BASE_DIR, "source", f"SLOSH_PR_{category}.pmtiles"),
+        }
+    )
 
 # Global catalogue of loaded PMTiles variants indexed by their key.
 CatalogEntry = Dict[str, object]
 pmtiles_catalog: Dict[str, CatalogEntry] = {}
 # Map dataset name -> list of variant keys for quick lookup.
 pmtiles_datasets: Dict[str, List[str]] = {}
+
+TILE_TYPE_TO_MIME = {
+    1: "application/vnd.mapbox-vector-tile",
+    2: "image/png",
+    3: "image/jpeg",
+    4: "image/webp",
+}
 
 
 def _lon_lat_bounds_from_header(header: Dict[str, int]) -> Tuple[float, float, float, float]:
@@ -77,6 +114,27 @@ def _tile_xyz_to_lon_lat_bounds(z: int, x: int, y: int) -> Tuple[float, float, f
 def _bbox_intersects(a: Tuple[float, float, float, float], b: Tuple[float, float, float, float]) -> bool:
     """Check if two [min_lon, min_lat, max_lon, max_lat] boxes intersect."""
     return not (a[2] <= b[0] or a[0] >= b[2] or a[3] <= b[1] or a[1] >= b[3])
+
+
+def _latlng_to_slippy(lat: float, lon: float, z: int) -> Tuple[int, int, int, int]:
+    lat = max(min(lat, 85.05112878), -85.05112878)
+    lon = (lon + 180.0) % 360.0 - 180.0
+
+    lat_rad = math.radians(lat)
+    n = 2 ** z
+    x_float = (lon + 180.0) / 360.0 * n
+    y_float = (1.0 - math.log(math.tan(lat_rad) + 1 / math.cos(lat_rad)) / math.pi) / 2.0 * n
+
+    x_tile = int(math.floor(x_float))
+    y_tile = int(math.floor(y_float))
+
+    x_pixel = int(round((x_float - x_tile) * 256))
+    y_pixel = int(round((y_float - y_tile) * 256))
+
+    x_pixel = min(max(x_pixel, 0), 255)
+    y_pixel = min(max(y_pixel, 0), 255)
+
+    return x_tile, y_tile, x_pixel, y_pixel
 
 
 def _lon_lat_to_tile(z: int, lon: float, lat: float) -> Tuple[int, int]:
@@ -171,6 +229,7 @@ def initialize_pmtiles() -> bool:
             header = reader.header()
             metadata = reader.metadata() or {}
 
+            tile_type = header.get("tile_type")
             catalog_entry: CatalogEntry = {
                 "key": key,
                 "dataset": dataset,
@@ -182,7 +241,12 @@ def initialize_pmtiles() -> bool:
                 "min_zoom": header.get("min_zoom", 0),
                 "max_zoom": header.get("max_zoom", 0),
                 "bounds": _lon_lat_bounds_from_header(header),
+                "tile_type": tile_type,
+                "content_type": TILE_TYPE_TO_MIME.get(tile_type, "application/octet-stream"),
             }
+
+            if "category" in entry:
+                catalog_entry["category"] = entry["category"]
 
             pmtiles_catalog[key] = catalog_entry
             pmtiles_datasets.setdefault(dataset, []).append(key)
@@ -219,7 +283,13 @@ def cleanup_pmtiles():
     print("Cleanup complete.")
 
 
-def _select_catalog_entry(z: int, x: int, y: int, dataset: str = "flood_zones") -> Optional[CatalogEntry]:
+def _select_catalog_entry(
+    z: int,
+    x: int,
+    y: int,
+    dataset: str = "flood_zones",
+    category: Optional[str] = None,
+) -> Optional[CatalogEntry]:
     """Find the best PMTiles archive for the requested tile."""
     if dataset not in pmtiles_datasets:
         return None
@@ -229,6 +299,8 @@ def _select_catalog_entry(z: int, x: int, y: int, dataset: str = "flood_zones") 
 
     for key in pmtiles_datasets[dataset]:
         entry = pmtiles_catalog[key]
+        if category and entry.get("category") != category:
+            continue
         if not _bbox_intersects(bbox, entry["bounds"]):
             continue
 
@@ -272,7 +344,7 @@ def find_floodzone_feature(lat: float, lng: float) -> Optional[Dict[str, object]
 
     for z in range(max_zoom, min_zoom - 1, -1):
         tile_x, tile_y = _lon_lat_to_tile(z, lng, lat)
-        entry = _select_catalog_entry(z, tile_x, tile_y)
+        entry = _select_catalog_entry(z, tile_x, tile_y, dataset="flood_zones")
         if entry is None:
             continue
 
@@ -289,10 +361,10 @@ def find_floodzone_feature(lat: float, lng: float) -> Optional[Dict[str, object]
             logging.exception("Failed to decode tile %s/%s/%s: %s", z, tile_x, tile_y, exc)
             continue
 
-        for layer_name, feature in feature_iter:
-            geometry = feature.get("geometry")
-            if not geometry:
-                continue
+    for layer_name, feature in feature_iter:
+        geometry = feature.get("geometry")
+        if not geometry:
+            continue
 
             try:
                 geom = shape(geometry)
@@ -315,19 +387,74 @@ def find_floodzone_feature(lat: float, lng: float) -> Optional[Dict[str, object]
     return None
 
 
-def get_tile_data(z: int, x: int, y: int) -> Tuple[Optional[bytes], Optional[str]]:
+# def find_slosh_values(
+#     lat: float,
+#     lng: float,
+#     categories: List[str],
+#     zoom: int = 14,
+# ) -> List[Dict[str, object]]:
+#     results: List[Dict[str, object]] = []
+
+#     if not categories:
+#         return results
+
+#     x_tile, y_tile, x_pixel, y_pixel = _latlng_to_slippy(lat, lng, zoom)
+
+#     for category in categories:
+#         tile_data, _ = get_tile_data(
+#             zoom,
+#             x_tile,
+#             y_tile,
+#             dataset="slosh",
+#             category=category,
+#         )
+
+#         value: Optional[int] = None
+#         if tile_data:
+#             try:
+#                 with Image.open(io.BytesIO(tile_data)) as img:
+#                     pixel = img.getpixel((x_pixel, y_pixel))
+#                     if isinstance(pixel, tuple):
+#                         value = int(pixel[0])
+#                     else:
+#                         value = int(pixel)
+#             except Exception:
+#                 traceback.print_exc()
+
+#         results.append(
+#             {
+#                 "category": category,
+#                 "value": value,
+#                 "tile": {"z": zoom, "x": x_tile, "y": y_tile},
+#             }
+#         )
+
+#     return results
+
+
+def get_tile_data(
+    z: int,
+    x: int,
+    y: int,
+    dataset: str = "flood_zones",
+    category: Optional[str] = None,
+) -> Tuple[Optional[bytes], Optional[str]]:
     """Get tile data from the loaded PMTiles archives."""
-    entry = _select_catalog_entry(z, x, y)
+    entry = _select_catalog_entry(z, x, y, dataset=dataset, category=category)
     if entry is None:
         return None, None
 
     reader: Reader = entry["reader"]  # type: ignore[index]
-    tile_data = reader.get(z, x, y)
+    source_y = y
+    if dataset == "slosh":
+        source_y = (1 << z) - 1 - y
+
+    tile_data = reader.get(z, x, source_y)
 
     if tile_data is None:
         return None, None
 
-    content_type = "application/vnd.mapbox-vector-tile"
+    content_type = entry.get("content_type", "application/octet-stream")
     return tile_data, content_type
 
 # --- TEMPLATES ---
@@ -527,7 +654,7 @@ async def map_viewer(request: Request):
 @app.get("/tiles/floodzone/{z}/{x}/{y}", response_class=Response)
 async def get_tile(z: int, x: int, y: int):
     try:
-        tile_data, content_type = get_tile_data(z, x, y)
+        tile_data, content_type = get_tile_data(z, x, y, dataset="flood_zones")
         if tile_data is None:
             return Response(status_code=204)
         
@@ -544,6 +671,46 @@ async def get_tile(z: int, x: int, y: int):
         return Response(content=tile_data, headers=headers)
     except Exception as e:
         print(f"Error serving tile {z}/{x}/{y}: {e}")
+        traceback.print_exc()
+        return Response(status_code=500, content=f"Error serving tile: {e}")
+
+
+@app.get("/tiles/slosh/{z}/{x}/{y}", response_class=Response)
+async def get_slosh_tile(
+    z: int,
+    x: int,
+    y: int,
+    category: str = Query(
+        ..., description="SLOSH category (Category1–Category5)."
+    ),
+):
+    normalized = category.strip().lower()
+    canonical = SLOSH_CATEGORY_LOOKUP.get(normalized)
+    if canonical is None:
+        raise HTTPException(status_code=400, detail="Unknown SLOSH category")
+
+    try:
+        tile_data, content_type = get_tile_data(
+            z,
+            x,
+            y,
+            dataset="slosh",
+            category=canonical,
+        )
+        if tile_data is None:
+            return Response(status_code=204)
+
+        headers = {
+            "Cache-Control": "public, max-age=86400",
+            "Content-Type": content_type or "application/octet-stream",
+        }
+
+        if tile_data.startswith(b"\x1f\x8b"):
+            headers["Content-Encoding"] = "gzip"
+
+        return Response(content=tile_data, headers=headers)
+    except Exception as e:
+        print(f"Error serving SLOSH tile {category} {z}/{x}/{y}: {e}")
         traceback.print_exc()
         return Response(status_code=500, content=f"Error serving tile: {e}")
 
@@ -627,6 +794,44 @@ async def get_floodzone(
         "properties": match["properties"],
         # "geometry": match["geometry"],
     }
+
+
+# @app.get("/api/v1/slosh")
+# async def get_slosh(
+#     lat: float = Query(..., description="Latitude in decimal degrees"),
+#     lng: float = Query(..., description="Longitude in decimal degrees"),
+#     category: Optional[str] = Query(
+#         None, description="Specific SLOSH category (e.g., Category1, cat1, 1)."
+#     ),
+#     zoom: int = Query(14, ge=0, le=22, description="Zoom level used for sampling"),
+# ):
+#     categories: List[str]
+#     if category:
+#         normalized = category.strip().lower()
+#         canonical = SLOSH_CATEGORY_LOOKUP.get(normalized)
+#         if canonical is None:
+#             raise HTTPException(status_code=400, detail="Unknown SLOSH category")
+#         categories = [canonical]
+#     else:
+#         categories = list(SLOSH_CATEGORIES)
+
+#     values = find_slosh_values(lat, lng, categories, zoom=zoom)
+
+#     if not any(result["value"] is not None for result in values):
+#         raise HTTPException(status_code=404, detail="No SLOSH data available at this location.")
+
+#     max_category = None
+#     for result in values:
+#         val = result["value"]
+#         if val is not None and val > 0:
+#             max_category = result["category"]
+
+#     return {
+#         "location": {"lat": lat, "lng": lng},
+#         "zoom": zoom,
+#         "categories": values,
+#         "max_category": max_category,
+#     }
 
 
 # --- MAIN EXECUTION ---

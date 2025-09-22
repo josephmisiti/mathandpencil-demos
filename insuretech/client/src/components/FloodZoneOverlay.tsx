@@ -61,13 +61,13 @@ export default function FloodZoneOverlay({ enabled }: FloodZoneOverlayProps) {
             binary: true,
             minZoom: 0,
             maxZoom: 18,
-            getFillColor: getFillColor,
+            // TypeScript struggles with deck.gl accessors; cast for convenience
+            getFillColor: getFillColor as any,
             stroked: false,
             filled: true,
             // Explicitly use MVTLoader and render with GeoJsonLayer
             loaders: [MVTLoader],
             renderSubLayers: (props) => {
-              console.log(props);
               return new GeoJsonLayer(props);
             }
           })

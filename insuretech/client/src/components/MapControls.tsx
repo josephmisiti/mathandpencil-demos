@@ -5,15 +5,27 @@ interface MapControlsProps {
   onHighResToggle: (enabled: boolean) => void;
   floodZoneEnabled: boolean;
   onFloodZoneToggle: (enabled: boolean) => void;
+  sloshEnabled: Record<string, boolean>;
+  onSloshToggle: (category: string, enabled: boolean) => void;
   highResLoading?: boolean;
   highResError?: string | null;
 }
+
+const SLOSH_CATEGORIES = [
+  "Category1",
+  "Category2",
+  "Category3",
+  "Category4",
+  "Category5"
+] as const;
 
 export default function MapControls({
   highResEnabled,
   onHighResToggle,
   floodZoneEnabled,
   onFloodZoneToggle,
+  sloshEnabled,
+  onSloshToggle,
   highResLoading = false,
   highResError = null
 }: MapControlsProps) {
@@ -113,6 +125,33 @@ export default function MapControls({
                     }`}
                   />
                 </button>
+              </div>
+            </div>
+            <div className="px-4 py-3 border-t border-gray-200 space-y-2">
+              <p className="text-sm font-medium text-gray-700">SLOSH Inundation</p>
+              <div className="space-y-2">
+                {SLOSH_CATEGORIES.map((category) => {
+                  const enabled = sloshEnabled[category] ?? false;
+                  return (
+                    <div key={category} className="flex items-center justify-between">
+                      <span className="text-xs text-gray-600">{category.replace("Category", "Category ")}</span>
+                      <button
+                        type="button"
+                        onClick={() => onSloshToggle(category, !enabled)}
+                        aria-pressed={enabled}
+                        className={`relative inline-flex h-5 w-10 items-center rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                          enabled ? "bg-blue-600" : "bg-gray-300"
+                        }`}
+                      >
+                        <span
+                          className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform duration-200 ${
+                            enabled ? "translate-x-5" : "translate-x-1"
+                          }`}
+                        />
+                      </button>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </div>
