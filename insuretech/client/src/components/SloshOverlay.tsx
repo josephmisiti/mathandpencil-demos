@@ -19,11 +19,68 @@ const CATEGORY_COLORS: Record<string, [number, number, number]> = {
   Category5: [239, 68, 68]
 };
 
-function loadRasterTile(url: string): Promise<HTMLImageElement> {
+const WHITE_THRESHOLD = 245;
+
+function loadRasterTile(
+  url: string,
+  tintColor: [number, number, number]
+): Promise<HTMLCanvasElement> {
   return new Promise((resolve, reject) => {
     const image = new Image();
     image.crossOrigin = "anonymous";
-    image.onload = () => resolve(image);
+    image.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = image.width;
+      canvas.height = image.height;
+
+      const ctx = canvas.getContext("2d");
+      if (!ctx) {
+        reject(new Error("Unable to acquire 2D canvas context"));
+        return;
+      }
+
+      ctx.drawImage(image, 0, 0);
+
+      try {
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const { data } = imageData;
+        let modified = false;
+
+        for (let i = 0; i < data.length; i += 4) {
+          const alpha = data[i + 3];
+          if (alpha === 0) {
+            continue;
+          }
+
+          const r = data[i];
+          const g = data[i + 1];
+          const b = data[i + 2];
+          const minChannel = Math.min(r, g, b);
+          const maxChannel = Math.max(r, g, b);
+
+          if (minChannel >= WHITE_THRESHOLD && maxChannel >= WHITE_THRESHOLD) {
+            data[i + 3] = 0;
+            modified = true;
+            continue;
+          }
+
+          // Keep only the hazard pixels and recolor them.
+          data[i] = tintColor[0];
+          data[i + 1] = tintColor[1];
+          data[i + 2] = tintColor[2];
+          data[i + 3] = Math.min(alpha, 200);
+          modified = true;
+        }
+
+        if (modified) {
+          ctx.putImageData(imageData, 0, 0);
+        }
+      } catch (processingError) {
+        console.warn("Failed to post-process SLOSH tile", processingError);
+      }
+
+      resolve(canvas);
+    };
     image.onerror = (err) => reject(err);
     image.src = url;
   });
@@ -68,6 +125,8 @@ export default function SloshOverlay({ enabledCategories }: SloshOverlayProps) {
               return Promise.resolve(null);
             }
 
+            const tintColor = CATEGORY_COLORS[category] ?? [255, 255, 255];
+
             const url = TILE_URL.replace("{category}", category)
               .replace("{z}", String(z))
               .replace("{x}", String(x))
@@ -75,7 +134,7 @@ export default function SloshOverlay({ enabledCategories }: SloshOverlayProps) {
 
             console.info(`Loading SLOSH tile: ${url}`);
 
-            return loadRasterTile(url);
+            return loadRasterTile(url, tintColor);
           },
           renderSubLayers: (props) => {
             const { data, tile } = props;
@@ -129,14 +188,11 @@ export default function SloshOverlay({ enabledCategories }: SloshOverlayProps) {
               return null;
             }
 
-            const tintColor = CATEGORY_COLORS[category] ?? [255, 255, 255];
-
             return new BitmapLayer(props, {
               image: data,
               bounds,
               data: null,
               opacity: 0.65,
-              tintColor,
               transparentColor: [0, 0, 0, 0]
             });
           }
