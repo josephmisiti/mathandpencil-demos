@@ -3,27 +3,25 @@ import { BitmapLayer } from "@deck.gl/layers";
 import { TileLayer } from "@deck.gl/geo-layers";
 import { useMap } from "@vis.gl/react-google-maps";
 import { useEffect, useMemo, useState } from "react";
+import {
+  SLOSH_CATEGORY_ALPHA,
+  SLOSH_CATEGORY_COLORS,
+  SloshCategory
+} from "../constants/slosh";
 
 type SloshOverlayProps = {
-  enabledCategories: string[];
+  enabledCategories: SloshCategory[];
 };
 
 const TILE_URL =
   "http://localhost:3005/tiles/slosh/{z}/{x}/{y}?category={category}";
 
-const CATEGORY_COLORS: Record<string, [number, number, number]> = {
-  Category1: [59, 130, 246],
-  Category2: [147, 51, 234],
-  Category3: [249, 115, 22],
-  Category4: [16, 185, 129],
-  Category5: [239, 68, 68]
-};
-
 const WHITE_THRESHOLD = 245;
 
 function loadRasterTile(
   url: string,
-  tintColor: [number, number, number]
+  tintColor: [number, number, number],
+  targetOpacity: number
 ): Promise<HTMLCanvasElement> {
   return new Promise((resolve, reject) => {
     const image = new Image();
@@ -47,8 +45,8 @@ function loadRasterTile(
         let modified = false;
 
         for (let i = 0; i < data.length; i += 4) {
-          const alpha = data[i + 3];
-          if (alpha === 0) {
+          const originalAlpha = data[i + 3];
+          if (originalAlpha === 0) {
             continue;
           }
 
@@ -68,7 +66,8 @@ function loadRasterTile(
           data[i] = tintColor[0];
           data[i + 1] = tintColor[1];
           data[i + 2] = tintColor[2];
-          data[i + 3] = Math.min(alpha, 200);
+          const targetAlpha = Math.round(targetOpacity * 255);
+          data[i + 3] = Math.min(targetAlpha, originalAlpha);
           modified = true;
         }
 
@@ -125,7 +124,7 @@ export default function SloshOverlay({ enabledCategories }: SloshOverlayProps) {
               return Promise.resolve(null);
             }
 
-            const tintColor = CATEGORY_COLORS[category] ?? [255, 255, 255];
+            const tintColor = SLOSH_CATEGORY_COLORS[category] ?? [255, 255, 255];
 
             const url = TILE_URL.replace("{category}", category)
               .replace("{z}", String(z))
@@ -134,7 +133,9 @@ export default function SloshOverlay({ enabledCategories }: SloshOverlayProps) {
 
             console.info(`Loading SLOSH tile: ${url}`);
 
-            return loadRasterTile(url, tintColor);
+            const targetAlpha = SLOSH_CATEGORY_ALPHA[category] ?? 0.7;
+
+            return loadRasterTile(url, tintColor, targetAlpha);
           },
           renderSubLayers: (props) => {
             const { data, tile } = props;
@@ -203,6 +204,11 @@ export default function SloshOverlay({ enabledCategories }: SloshOverlayProps) {
   useEffect(() => {
     if (!overlay) return;
     overlay.setProps({ layers });
+    if (typeof overlay.requestRedraw === "function") {
+      overlay.requestRedraw();
+    } else if ((overlay as unknown as { _deck?: { setNeedsRedraw?: (reason: string) => void } })._deck?.setNeedsRedraw) {
+      (overlay as unknown as { _deck?: { setNeedsRedraw?: (reason: string) => void } })._deck?.setNeedsRedraw?.("slosh-overlay-update");
+    }
   }, [overlay, layers]);
 
   return null;

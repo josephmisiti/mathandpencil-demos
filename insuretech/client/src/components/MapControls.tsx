@@ -1,23 +1,21 @@
 import { useEffect, useMemo, useState } from "react";
+import {
+  SLOSH_CATEGORIES,
+  SLOSH_CATEGORY_LABELS,
+  SloshCategory,
+  categoryColorWithAlpha
+} from "../constants/slosh";
 
 interface MapControlsProps {
   highResEnabled: boolean;
   onHighResToggle: (enabled: boolean) => void;
   floodZoneEnabled: boolean;
   onFloodZoneToggle: (enabled: boolean) => void;
-  sloshEnabled: Record<string, boolean>;
-  onSloshToggle: (category: string, enabled: boolean) => void;
+  sloshEnabled: Partial<Record<SloshCategory, boolean>>;
+  onSloshToggle: (category: SloshCategory, enabled: boolean) => void;
   highResLoading?: boolean;
   highResError?: string | null;
 }
-
-const SLOSH_CATEGORIES = [
-  "Category1",
-  "Category2",
-  "Category3",
-  "Category4",
-  "Category5"
-] as const;
 
 export default function MapControls({
   highResEnabled,
@@ -132,9 +130,16 @@ export default function MapControls({
               <div className="space-y-2">
                 {SLOSH_CATEGORIES.map((category) => {
                   const enabled = sloshEnabled[category] ?? false;
+                  const swatchColor = categoryColorWithAlpha(category);
                   return (
                     <div key={category} className="flex items-center justify-between">
-                      <span className="text-xs text-gray-600">{category.replace("Category", "Category ")}</span>
+                      <span className="flex items-center gap-2 text-xs text-gray-600">
+                        <span
+                          className="inline-block h-2.5 w-4 rounded-sm border border-gray-200"
+                          style={{ backgroundColor: swatchColor }}
+                        />
+                        <span>{SLOSH_CATEGORY_LABELS[category]}</span>
+                      </span>
                       <button
                         type="button"
                         onClick={() => onSloshToggle(category, !enabled)}
