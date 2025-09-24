@@ -1,4 +1,15 @@
-"""Combine processed SLOSH COGs into PMTiles archives."""
+"""
+Combine processed SLOSH COGs into PMTiles archives.
+
+This script now automatically discovers all datasets in the 'processed/' directory
+rather than relying on hardcoded configurations. It will process all available
+datasets by default, or specific ones if dataset keys are provided.
+
+Usage examples:
+- Process all datasets: modal run slosh_zone_combiner.py
+- Process specific datasets: modal run slosh_zone_combiner.py hawaii guam
+- Process with run tag: modal run slosh_zone_combiner.py run_tag=20250924
+"""
 
 from __future__ import annotations
 
@@ -12,76 +23,7 @@ from typing import Dict, List, Optional, Sequence
 
 import modal
 
-SLOSH_DATASETS: List[Dict[str, str]] = [
-    {
-        "key": "american_samoa",
-        "description": "American Samoa",
-        "zip_name": "American_Samoa_SLOSH_MOM_Inundation_v3.zip",
-        "output_prefix": "SLOSH_AMERICAN_SAMOA",
-        "processed_subdir": "american_samoa",
-    },
-    {
-        "key": "guam",
-        "description": "Guam",
-        "zip_name": "Guam_SLOSH_MOM_Inundation_v3.zip",
-        "output_prefix": "SLOSH_GUAM",
-        "processed_subdir": "guam",
-    },
-    {
-        "key": "hispaniola",
-        "description": "Hispaniola",
-        "zip_name": "Hispaniola_SLOSH_MOM_Inundation.zip",
-        "output_prefix": "SLOSH_HISPANIOLA",
-        "processed_subdir": "hispaniola",
-    },
-    {
-        "key": "hawaii",
-        "description": "Hawaii",
-        "zip_name": "Hawaii_SLOSH_MOM_Inundation.zip",
-        "output_prefix": "SLOSH_HAWAII",
-        "processed_subdir": "hawaii",
-    },
-    {
-        "key": "puerto_rico",
-        "description": "Puerto Rico",
-        "zip_name": "PR_SLOSH_MOM_Inundation.zip",
-        "output_prefix": "SLOSH_PR",
-        "processed_subdir": "puerto_rico",
-    },
-    {
-        "key": "southern_california",
-        "description": "Southern California",
-        "zip_name": "Southern_California_SLOSH_MOM_Inundation_v3.zip",
-        "output_prefix": "SLOSH_SOUTHERN_CALIFORNIA",
-        "processed_subdir": "southern_california",
-    },
-    {
-        "key": "us",
-        "description": "Continental United States",
-        "zip_name": "US_SLOSH_MOM_Inundation_v3.zip",
-        "output_prefix": "SLOSH_US",
-        "processed_subdir": "us",
-    },
-    {
-        "key": "usvi",
-        "description": "U.S. Virgin Islands",
-        "zip_name": "USVI_SLOSH_MOM_Inundation.zip",
-        "output_prefix": "SLOSH_USVI",
-        "processed_subdir": "usvi",
-    },
-    {
-        "key": "yucatan",
-        "description": "Yucatán Peninsula",
-        "zip_name": "Yucatan_SLOSH_MOM_Inundation_v3.zip",
-        "output_prefix": "SLOSH_YUCATAN",
-        "processed_subdir": "yucatan",
-    },
-]
-
-SLOSH_DATASETS_BY_KEY: Dict[str, Dict[str, str]] = {
-    dataset["key"]: dataset for dataset in SLOSH_DATASETS
-}
-
+# Hurricane categories to process
 SLOSH_CATEGORY_NAMES: List[str] = [
     "Category1",
     "Category2",
@@ -91,22 +33,71 @@ SLOSH_CATEGORY_NAMES: List[str] = [
 ]
 
 
+def discover_all_datasets() -> List[Dict[str, str]]:
+    """Discover all available datasets by scanning the processed directory."""
+    discovered_datasets = []
+
+    if not PROCESSED_ROOT.exists():
+        logger.warning("Processed root directory does not exist: %s", PROCESSED_ROOT)
+        return discovered_datasets
+
+    for subdir in PROCESSED_ROOT.iterdir():
+        if not subdir.is_dir():
+            continue
+
+        # Skip if no .cog.tif files found
+        cog_files = list(subdir.glob("*.cog.tif"))
+        if not cog_files:
+            logger.info("Skipping %s: no .cog.tif files found", subdir.name)
+            continue
+
+        # Extract dataset prefix from first COG file
+        first_cog = cog_files[0]
+        # Example: SLOSH_HAWAII_Category1_z0_10_20250924.cog.tif -> SLOSH_HAWAII
+        name_parts = first_cog.stem.split("_")
+        if len(name_parts) >= 2:
+            output_prefix = "_".join(name_parts[:2])
+        else:
+            output_prefix = f"SLOSH_{subdir.name.upper()}"
+
+        dataset = {
+            "key": subdir.name,
+            "description": subdir.name.replace("_", " ").title(),
+            "zip_name": f"{subdir.name}.zip",  # Not used in combining
+            "output_prefix": output_prefix,
+            "processed_subdir": subdir.name,
+        }
+
+        discovered_datasets.append(dataset)
+        logger.info("Discovered dataset: %s (%s)", dataset["description"], output_prefix)
+
+    return discovered_datasets
+
+
 def select_datasets(keys: Optional[Sequence[str]]) -> List[Dict[str, str]]:
+    # Always discover datasets dynamically
+    all_datasets = discover_all_datasets()
+
     if not keys:
-        return SLOSH_DATASETS
+        return all_datasets
+
+    # Build lookup by key for discovered datasets
+    datasets_by_key = {dataset["key"]: dataset for dataset in all_datasets}
 
     selected: List[Dict[str, str]] = []
     missing: List[str] = []
     for key in keys:
-        dataset = SLOSH_DATASETS_BY_KEY.get(key)
+        dataset = datasets_by_key.get(key)
         if dataset:
             selected.append(dataset)
         else:
             missing.append(key)
 
     if missing:
+        available_keys = ", ".join(sorted(datasets_by_key.keys()))
         raise KeyError(
-            "Unknown SLOSH dataset key(s): " + ", ".join(sorted(set(missing)))
+            f"Unknown SLOSH dataset key(s): {', '.join(sorted(set(missing)))}. "
+            f"Available keys: {available_keys}"
         )
 
     return selected
@@ -175,8 +166,8 @@ def resolve_latest_cog(
 
 @app.function(
     volumes={str(STORAGE_ROOT): volume},
-    timeout=3600,
-    memory=4096,
+    timeout=8*3600,
+    memory=4*4096,
 )
 def combine_categories(
     dataset_keys: Optional[Sequence[str]] = None,
@@ -190,15 +181,33 @@ def combine_categories(
         logger.error("%s", exc)
         raise
 
+    if not datasets:
+        logger.warning("No datasets found in %s", PROCESSED_ROOT)
+        return
+
     OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
 
     produced_any = False
 
     logger.info(
-        "Combining %d dataset(s)%s",
+        "Discovered %d dataset(s) in processed directory: %s",
         len(datasets),
-        f" with run tag {run_tag}" if run_tag else "",
+        ", ".join([d["key"] for d in datasets])
     )
+
+    if dataset_keys:
+        logger.info(
+            "Processing %d selected dataset(s)%s: %s",
+            len(datasets),
+            f" with run tag {run_tag}" if run_tag else "",
+            ", ".join([d["key"] for d in datasets])
+        )
+    else:
+        logger.info(
+            "Processing ALL %d dataset(s)%s",
+            len(datasets),
+            f" with run tag {run_tag}" if run_tag else "",
+        )
 
     for dataset in datasets:
         produced_any |= combine_dataset(dataset, run_tag=run_tag)
