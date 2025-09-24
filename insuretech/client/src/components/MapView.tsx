@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Map, Marker, InfoWindow } from "@vis.gl/react-google-maps";
+import { Map, Marker, InfoWindow, useMap } from "@vis.gl/react-google-maps";
 import { MapProps, Location } from "../types/location";
 import MarkerInfo from "./MarkerInfo";
 import MapControls from "./MapControls";
@@ -9,6 +9,7 @@ import FloodZoneOverlay from "./FloodZoneOverlay";
 import SloshOverlay from "./SloshOverlay";
 import FloodZoneLegend from "./FloodZoneLegend";
 import SloshLegend from "./SloshLegend";
+import MeasurementPolygon from "./MeasurementPolygon";
 import { SLOSH_CATEGORIES, SloshCategory } from "../constants/slosh";
 
 export default function MapView({
@@ -47,6 +48,9 @@ export default function MapView({
         position: { x: number; y: number };
       }
   >(null);
+  const [measureMode, setMeasureMode] = useState(false);
+  const [polygonPoints, setPolygonPoints] = useState<google.maps.LatLngLiteral[]>([]);
+  const [polygonArea, setPolygonArea] = useState<number | null>(null);
 
   const { imagery, status, error } = useEagleViewImagery(
     highResEnabled,
@@ -57,6 +61,38 @@ export default function MapView({
     if (!highResEnabled || status !== "ready") return null;
     return imagery;
   }, [highResEnabled, imagery, status]);
+
+  // Calculate polygon area using the shoelace formula
+  const calculatePolygonArea = (points: google.maps.LatLngLiteral[]): number => {
+    if (points.length < 3) return 0;
+
+    // Convert degrees to meters using approximate conversion
+    // This is a simplified calculation - for precise measurements, you'd use geodesic calculations
+    const earthRadius = 6371000; // meters
+    const degToRad = Math.PI / 180;
+
+    // Calculate area using shoelace formula with spherical approximation
+    let area = 0;
+    for (let i = 0; i < points.length; i++) {
+      const j = (i + 1) % points.length;
+      const xi = points[i].lng * degToRad * earthRadius * Math.cos(points[i].lat * degToRad);
+      const yi = points[i].lat * degToRad * earthRadius;
+      const xj = points[j].lng * degToRad * earthRadius * Math.cos(points[j].lat * degToRad);
+      const yj = points[j].lat * degToRad * earthRadius;
+      area += xi * yj - xj * yi;
+    }
+    return Math.abs(area) / 2;
+  };
+
+  // Check if a point is close to the first point (for auto-snap)
+  const isCloseToStart = (point: google.maps.LatLngLiteral, threshold: number = 0.0001): boolean => {
+    if (polygonPoints.length < 3) return false;
+    const startPoint = polygonPoints[0];
+    const distance = Math.sqrt(
+      Math.pow(point.lat - startPoint.lat, 2) + Math.pow(point.lng - startPoint.lng, 2)
+    );
+    return distance < threshold;
+  };
 
   const handleHighResToggle = (enabled: boolean) => {
     setHighResEnabled(enabled);
@@ -107,20 +143,31 @@ export default function MapView({
     }
   }, [floodZoneEnabled]);
 
+  // Combined ESC key handler for both context menu and measurement mode
   useEffect(() => {
-    if (!contextMenu) return;
-
     const handler = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        setContextMenu(null);
+        console.log("ESC pressed", { measureMode, contextMenu: !!contextMenu });
+
+        if (measureMode) {
+          console.log("Canceling measurement mode");
+          setMeasureMode(false);
+          setPolygonPoints([]);
+          setPolygonArea(null);
+        }
+
+        if (contextMenu) {
+          console.log("Closing context menu");
+          setContextMenu(null);
+        }
       }
     };
 
-    window.addEventListener("keydown", handler);
+    document.addEventListener("keydown", handler);
     return () => {
-      window.removeEventListener("keydown", handler);
+      document.removeEventListener("keydown", handler);
     };
-  }, [contextMenu]);
+  }, [measureMode, contextMenu]);
 
   return (
     <div ref={mapContainerRef} className="relative h-screen w-screen">
@@ -166,9 +213,33 @@ export default function MapView({
           mapCenterRef.current = newCenter;
           onViewChange?.({ center: newCenter, zoom: mapZoomRef.current });
         }}
-        onClick={() => setContextMenu(null)}
+        onClick={(event) => {
+          setContextMenu(null);
+
+          // Handle polygon drawing
+          if (measureMode) {
+            const clickedLatLng = event.detail.latLng;
+            if (!clickedLatLng) return;
+
+            // Check if we should auto-snap to close the polygon
+            if (isCloseToStart(clickedLatLng)) {
+              // Close the polygon
+              const area = calculatePolygonArea(polygonPoints);
+              setPolygonArea(area);
+              setMeasureMode(false);
+              console.log(`Polygon area: ${area.toLocaleString()} square meters`);
+              console.log(`Polygon area: ${(area * 0.000247105).toFixed(2)} acres`);
+              return;
+            }
+
+            // Add point to polygon
+            setPolygonPoints(prev => [...prev, clickedLatLng]);
+          }
+        }}
         onContextmenu={(event) => {
-          if (!floodZoneEnabled) return;
+          // Show context menu if flood zone is enabled OR no layers are enabled
+          const noLayersEnabled = !floodZoneEnabled && !SLOSH_CATEGORIES.some(category => sloshEnabled[category]);
+          if (!floodZoneEnabled && !noLayersEnabled) return;
 
           const clickedLatLng = event.detail.latLng;
           if (!clickedLatLng) return;
@@ -212,6 +283,10 @@ export default function MapView({
         <SloshOverlay
           enabledCategories={SLOSH_CATEGORIES.filter((category) => sloshEnabled[category])}
         />
+
+        {/* Render measurement polygon using custom component */}
+        <MeasurementPolygon points={polygonPoints} area={polygonArea} />
+
         {markers.map((marker) => (
           <Marker
             key={`${marker.lat}-${marker.lng}`}
@@ -252,24 +327,123 @@ export default function MapView({
           </div>
         );
       })()}
+
+      {/* Area measurement result display */}
+      {polygonArea !== null && (
+        <div className="absolute top-4 right-4 z-20 rounded-md border border-slate-200 bg-white p-3 shadow-lg">
+          <div className="text-sm font-medium text-slate-700">Area Measurement</div>
+          <div className="text-lg font-bold text-slate-900">
+            {polygonArea.toLocaleString()} m²
+          </div>
+          <div className="text-sm text-slate-600">
+            {(polygonArea * 0.000247105).toFixed(2)} acres
+          </div>
+          <button
+            onClick={() => {
+              setPolygonArea(null);
+              setPolygonPoints([]);
+            }}
+            className="mt-2 text-xs text-slate-500 hover:text-slate-700"
+          >
+            Clear
+          </button>
+        </div>
+      )}
+
+      {/* Measurement instructions */}
+      {measureMode && (
+        <div className="absolute top-4 left-1/2 z-20 -translate-x-1/2 rounded-md border border-slate-200 bg-white p-3 shadow-lg">
+          <div className="text-sm text-slate-700">
+            {polygonPoints.length === 0 && "Click on the map to start drawing a polygon"}
+            {polygonPoints.length === 1 && "Continue clicking to add points"}
+            {polygonPoints.length === 2 && "Add at least one more point to create a polygon"}
+            {polygonPoints.length >= 3 && (
+              <div>
+                Click near the first point to close the polygon
+                <br />
+                <span className="text-xs text-slate-500">
+                  Right-click for options
+                </span>
+              </div>
+            )}
+            <div className="text-xs text-slate-500 mt-1 border-t pt-1">
+              Press ESC to cancel
+            </div>
+          </div>
+        </div>
+      )}
+
       {contextMenu && (
         <div
           className="absolute z-30 min-w-[180px] rounded-md border border-slate-200 bg-white py-1 shadow-lg"
           style={{ left: contextMenu.position.x, top: contextMenu.position.y }}
           onClick={(event) => event.stopPropagation()}
         >
-          <button
-            className="block w-full px-4 py-2 text-left text-sm text-slate-600 hover:bg-slate-100"
-            onClick={() => {
-              const url = new URL("http://localhost:3005/api/v1/floodzone");
-              url.searchParams.set("lat", contextMenu.latLng.lat.toString());
-              url.searchParams.set("lng", contextMenu.latLng.lng.toString());
-              window.open(url.toString(), "_blank", "noopener,noreferrer");
-              setContextMenu(null);
-            }}
-          >
-            Go to Floodzone API
-          </button>
+          {floodZoneEnabled && (
+            <button
+              className="block w-full px-4 py-2 text-left text-sm text-slate-600 hover:bg-slate-100"
+              onClick={() => {
+                const url = new URL("http://localhost:3005/api/v1/floodzone");
+                url.searchParams.set("lat", contextMenu.latLng.lat.toString());
+                url.searchParams.set("lng", contextMenu.latLng.lng.toString());
+                window.open(url.toString(), "_blank", "noopener,noreferrer");
+                setContextMenu(null);
+              }}
+            >
+              Go to Floodzone API
+            </button>
+          )}
+
+          {/* Show Measure area option when no layers are enabled */}
+          {!floodZoneEnabled && !SLOSH_CATEGORIES.some(category => sloshEnabled[category]) && (
+            <>
+              {!measureMode && (
+                <button
+                  className="block w-full px-4 py-2 text-left text-sm text-slate-600 hover:bg-slate-100"
+                  onClick={() => {
+                    setMeasureMode(true);
+                    setPolygonPoints([]);
+                    setPolygonArea(null);
+                    setContextMenu(null);
+                  }}
+                >
+                  📏 Measure area
+                </button>
+              )}
+
+              {measureMode && (
+                <>
+                  <button
+                    className="block w-full px-4 py-2 text-left text-sm text-slate-600 hover:bg-slate-100"
+                    onClick={() => {
+                      setMeasureMode(false);
+                      setPolygonPoints([]);
+                      setPolygonArea(null);
+                      setContextMenu(null);
+                    }}
+                  >
+                    ❌ Cancel measurement
+                  </button>
+
+                  {polygonPoints.length >= 3 && (
+                    <button
+                      className="block w-full px-4 py-2 text-left text-sm text-slate-600 hover:bg-slate-100"
+                      onClick={() => {
+                        const area = calculatePolygonArea(polygonPoints);
+                        setPolygonArea(area);
+                        setMeasureMode(false);
+                        setContextMenu(null);
+                        console.log(`Polygon area: ${area.toLocaleString()} square meters`);
+                        console.log(`Polygon area: ${(area * 0.000247105).toFixed(2)} acres`);
+                      }}
+                    >
+                      ✅ Finish measurement
+                    </button>
+                  )}
+                </>
+              )}
+            </>
+          )}
         </div>
       )}
     </div>
