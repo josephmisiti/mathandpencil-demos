@@ -76,75 +76,7 @@ export default function DistanceMeasurement({ points, distance, onClear }: Dista
       polyline.setMap(map);
       polylineRef.current = polyline;
 
-      // Show distance label when distance is calculated
-      if (distance && distance > 0) {
-        const midpoint = getMidpoint(points[0], points[1]);
-
-        // Convert to different units
-        const feet = distance * 3.28084; // 1 meter = 3.28084 feet
-        const miles = distance * 0.000621371; // 1 meter = 0.000621371 miles
-
-        let content = '';
-        if (distance < 1000) {
-          // Show meters and feet for shorter distances
-          content = `
-            <div style="
-              background: white;
-              border: 1px solid #4285F4;
-              border-radius: 6px;
-              padding: 8px 12px;
-              box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-              font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-              font-size: 13px;
-              line-height: 1.4;
-              text-align: center;
-              min-width: 120px;
-            ">
-              <div style="font-weight: 600; color: #4285F4; margin-bottom: 4px;">Distance</div>
-              <div style="color: #333;">
-                <div>${distance.toFixed(1)} m</div>
-                <div>${feet.toFixed(1)} ft</div>
-              </div>
-              ${onClear ? '<button onclick="window.clearDistanceMeasurement()" style="margin-top: 6px; padding: 2px 6px; font-size: 11px; color: #666; background: none; border: 1px solid #ddd; border-radius: 3px; cursor: pointer;">Clear</button>' : ''}
-            </div>
-          `;
-        } else {
-          // Show kilometers and miles for longer distances
-          const kilometers = distance / 1000;
-          content = `
-            <div style="
-              background: white;
-              border: 1px solid #4285F4;
-              border-radius: 6px;
-              padding: 8px 12px;
-              box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-              font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-              font-size: 13px;
-              line-height: 1.4;
-              text-align: center;
-              min-width: 120px;
-            ">
-              <div style="font-weight: 600; color: #4285F4; margin-bottom: 4px;">Distance</div>
-              <div style="color: #333;">
-                <div>${kilometers.toFixed(2)} km</div>
-                <div>${miles.toFixed(2)} mi</div>
-              </div>
-              ${onClear ? '<button onclick="window.clearDistanceMeasurement()" style="margin-top: 6px; padding: 2px 6px; font-size: 11px; color: #666; background: none; border: 1px solid #ddd; border-radius: 3px; cursor: pointer;">Clear</button>' : ''}
-            </div>
-          `;
-        }
-
-        const infoWindow = new google.maps.InfoWindow({
-          content: content,
-          position: midpoint,
-          disableAutoPan: true,
-          headerDisabled: true,
-          pixelOffset: new google.maps.Size(0, -10),
-        });
-
-        infoWindow.open(map);
-        distanceLabelRef.current = infoWindow;
-      }
+      // Distance label is now displayed in the top-center panel instead of on the map
     }
   }, [map, points, distance]);
 

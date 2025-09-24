@@ -98,46 +98,7 @@ export default function MeasurementPolygon({ points, area }: MeasurementPolygonP
       polygonRef.current = polygon;
     }
 
-    // Show area label when area is calculated and polygon exists
-    if (area && area > 0 && points.length >= 3) {
-      const center = getPolygonCenter(points);
-
-      // Convert to different units
-      const squareFeet = area * 10.764; // 1 m² = 10.764 ft²
-      const acres = area * 0.000247105; // 1 m² = 0.000247105 acres
-
-      const content = `
-        <div style="
-          background: white;
-          border: 1px solid #ccc;
-          border-radius: 6px;
-          padding: 8px 12px;
-          box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-          font-size: 13px;
-          line-height: 1.4;
-          text-align: center;
-          min-width: 140px;
-        ">
-          <div style="font-weight: 600; color: #333; margin-bottom: 4px;">Area</div>
-          <div style="color: #666;">
-            <div>${area.toLocaleString()} m²</div>
-            <div>${squareFeet.toLocaleString()} ft²</div>
-          </div>
-        </div>
-      `;
-
-      const infoWindow = new google.maps.InfoWindow({
-        content: content,
-        position: center,
-        disableAutoPan: true,
-        headerDisabled: true,
-        pixelOffset: new google.maps.Size(0, 0),
-      });
-
-      infoWindow.open(map);
-      areaLabelRef.current = infoWindow;
-    }
+    // Area label is now displayed in the top-center panel instead of on the map
   }, [map, points, area]);
 
   // Cleanup on unmount

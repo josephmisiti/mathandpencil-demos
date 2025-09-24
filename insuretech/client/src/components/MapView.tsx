@@ -89,7 +89,7 @@ export default function MapView({
   };
 
   // Check if a point is close to the first point (for auto-snap)
-  const isCloseToStart = (point: google.maps.LatLngLiteral, threshold: number = 0.0001): boolean => {
+  const isCloseToStart = (point: google.maps.LatLngLiteral, threshold: number = 0.00001): boolean => {
     if (polygonPoints.length < 3) return false;
     const startPoint = polygonPoints[0];
     const distance = Math.sqrt(
@@ -166,11 +166,31 @@ export default function MapView({
     }
   }, [floodZoneEnabled]);
 
-  // Combined ESC key handler for both context menu and measurement mode
+  // Combined ESC key handler for context menu, measurement modes, and completed measurements
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        console.log("ESC pressed", { measureMode, contextMenu: !!contextMenu });
+        console.log("ESC pressed", { measureMode, distanceMode, polygonArea: !!polygonArea, distance: !!distance, contextMenu: !!contextMenu });
+
+        // Clear completed area measurement
+        if (polygonArea !== null) {
+          console.log("Clearing completed area measurement");
+          event.preventDefault();
+          event.stopPropagation();
+          setPolygonArea(null);
+          setPolygonPoints([]);
+          return;
+        }
+
+        // Clear completed distance measurement
+        if (distance !== null) {
+          console.log("Clearing completed distance measurement");
+          event.preventDefault();
+          event.stopPropagation();
+          setDistance(null);
+          setDistancePoints([]);
+          return;
+        }
 
         if (measureMode) {
           console.log("Canceling measurement mode");
@@ -201,16 +221,10 @@ export default function MapView({
     return () => {
       document.removeEventListener("keydown", handler);
     };
-  }, [measureMode, distanceMode, contextMenu]);
+  }, [measureMode, distanceMode, contextMenu, polygonArea, distance]);
 
-  // Cleanup when measurement mode is disabled
-  useEffect(() => {
-    if (!measureMode) {
-      console.log("Measurement mode disabled - clearing polygon data");
-      setPolygonPoints([]);
-      setPolygonArea(null);
-    }
-  }, [measureMode]);
+  // Only cleanup polygon data when explicitly requested via ESC or Clear button
+  // Don't auto-clear when measureMode becomes false, as we want to show the completed polygon
 
   // Only cleanup distance data when explicitly requested via ESC or Clear button
   // Don't auto-clear when distanceMode becomes false, as we want to show the result
@@ -406,15 +420,18 @@ export default function MapView({
         );
       })()}
 
-      {/* Area measurement result display */}
+      {/* Area measurement result display - top center */}
       {polygonArea !== null && distance === null && (
-        <div className="absolute top-4 right-4 z-20 rounded-md border border-slate-200 bg-white p-3 shadow-lg">
+        <div className="absolute left-1/2 z-20 -translate-x-1/2 rounded-md border border-slate-200 bg-white p-3 shadow-lg" style={{ top: '5px' }}>
           <div className="text-sm font-medium text-slate-700">Area Measurement</div>
           <div className="text-lg font-bold text-slate-900">
-            {polygonArea.toLocaleString()} m²
+            {Math.round(polygonArea).toLocaleString()} m²
           </div>
           <div className="text-sm text-slate-600">
-            {(polygonArea * 0.000247105).toFixed(2)} acres
+            {Math.round(polygonArea * 10.764).toLocaleString()} ft²
+          </div>
+          <div className="text-sm text-slate-600">
+            {Math.round(polygonArea * 0.000247105 * 100) / 100} acres
           </div>
           <button
             onClick={() => {
@@ -428,10 +445,36 @@ export default function MapView({
         </div>
       )}
 
+      {/* Distance measurement result display - top center */}
+      {distance !== null && polygonArea === null && (
+        <div className="absolute left-1/2 z-20 -translate-x-1/2 rounded-md border border-slate-200 bg-white p-3 shadow-lg" style={{ top: '5px' }}>
+          <div className="text-sm font-medium text-slate-700">Distance Measurement</div>
+          <div className="text-lg font-bold text-slate-900">
+            {Math.round(distance)} m
+          </div>
+          <div className="text-sm text-slate-600">
+            {Math.round(distance * 3.28084)} ft
+          </div>
+          {distance >= 1000 && (
+            <div className="text-sm text-slate-600">
+              {Math.round(distance / 1000 * 100) / 100} km / {Math.round(distance * 0.000621371 * 100) / 100} mi
+            </div>
+          )}
+          <button
+            onClick={() => {
+              setDistance(null);
+              setDistancePoints([]);
+            }}
+            className="mt-2 text-xs text-slate-500 hover:text-slate-700"
+          >
+            Clear
+          </button>
+        </div>
+      )}
 
       {/* Measurement instructions */}
       {measureMode && (
-        <div className="absolute top-4 left-1/2 z-20 -translate-x-1/2 rounded-md border border-slate-200 bg-white p-3 shadow-lg">
+        <div className="absolute left-1/2 z-20 -translate-x-1/2 rounded-md border border-slate-200 bg-white p-3 shadow-lg" style={{ top: '80px' }}>
           <div className="text-sm text-slate-700">
             {polygonPoints.length === 0 && "Click on the map to start drawing a polygon"}
             {polygonPoints.length === 1 && "Continue clicking to add points"}
@@ -454,7 +497,7 @@ export default function MapView({
 
       {/* Distance measurement instructions */}
       {distanceMode && (
-        <div className="absolute top-4 left-1/2 z-20 -translate-x-1/2 rounded-md border border-slate-200 bg-white p-3 shadow-lg">
+        <div className="absolute left-1/2 z-20 -translate-x-1/2 rounded-md border border-slate-200 bg-white p-3 shadow-lg" style={{ top: '80px' }}>
           <div className="text-sm text-slate-700">
             {distancePoints.length === 0 && "Click on the map to select the first point"}
             {distancePoints.length === 1 && "Click on the map to select the second point"}
