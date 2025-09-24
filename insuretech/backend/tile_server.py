@@ -336,7 +336,7 @@ def find_floodzone_feature(lat: float, lng: float) -> Optional[Dict[str, object]
     entries = _dataset_entries("flood_zones")
     if not entries:
         raise RuntimeError("Flood zone dataset is not loaded.")
-
+    
     min_zoom = int(min(entry["min_zoom"] for entry in entries))
     max_zoom = int(max(entry["max_zoom"] for entry in entries))
 
