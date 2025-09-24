@@ -106,6 +106,23 @@ def test_geocoding_api(base_url: str, acord_data: dict = None, token: str = None
         if "address" in result_data:
             print(f"📍 Extracted Address: {result_data['address']}")
 
+        if "geocoding_results" in result_data:
+            geocoding = result_data['geocoding_results']
+            if "error" in geocoding:
+                print(f"🌍 Geocoding Error: {geocoding['error']}")
+            elif "results" in geocoding and len(geocoding["results"]) > 0:
+                first_result = geocoding["results"][0]
+                geometry = first_result.get("geometry", {})
+                location = geometry.get("location", {})
+                formatted_address = first_result.get("formatted_address", "N/A")
+
+                print(f"🌍 Geocoding Success:")
+                print(f"   📍 Formatted Address: {formatted_address}")
+                if location:
+                    print(f"   🗺️  Coordinates: {location.get('lat', 'N/A')}, {location.get('lng', 'N/A')}")
+            else:
+                print(f"🌍 Geocoding: No results found")
+
         if "error" in result_data:
             print(f"⚠️ Warning: {result_data['error']}")
             if verbose and "raw_response" in result_data:
@@ -141,6 +158,21 @@ def test_geocoding_api(base_url: str, acord_data: dict = None, token: str = None
             minimal_result = minimal_response.json()
             print(f"✅ Minimal data test successful!")
             print(f"📍 Address: {minimal_result.get('address', 'N/A')}")
+
+            # Show geocoding results for minimal test too
+            if "geocoding_results" in minimal_result:
+                geocoding = minimal_result['geocoding_results']
+                if "error" in geocoding:
+                    print(f"🌍 Geocoding Error: {geocoding['error']}")
+                elif "results" in geocoding and len(geocoding["results"]) > 0:
+                    first_result = geocoding["results"][0]
+                    formatted_address = first_result.get("formatted_address", "N/A")
+                    geometry = first_result.get("geometry", {})
+                    location = geometry.get("location", {})
+                    print(f"🌍 Geocoded: {formatted_address}")
+                    if location:
+                        print(f"   🗺️  Coordinates: {location.get('lat', 'N/A')}, {location.get('lng', 'N/A')}")
+
             if verbose:
                 print(f"📋 Response: {json.dumps(minimal_result, indent=2)}")
         else:

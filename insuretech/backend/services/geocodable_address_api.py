@@ -18,13 +18,17 @@ api_secret = modal.Secret.from_name("acord-api-secret")
 # AWS credentials for Claude access
 aws_secret = modal.Secret.from_name("aws-credentials")
 
+# Google API credentials
+google_secret = modal.Secret.from_name("google-api-secret")
+
 # Modal image with dependencies
 image = modal.Image.debian_slim().pip_install(
     "fastapi",
     "boto3",
     "botocore",
     "python-multipart",
-    "pydantic"
+    "pydantic",
+    "requests"
 )
 
 # Geocoding prompt
@@ -48,19 +52,55 @@ class GeocodeRequest(BaseModel):
 
 class GeocodeResponse(BaseModel):
     address: str
+    geocoding_results: dict = None
 
 @app.function(
     image=image,
-    secrets=[aws_secret],
+    secrets=[aws_secret, google_secret],
     timeout=120
 )
 def extract_geocodable_address(acord_data: dict) -> dict:
-    """Extract geocodable address from ACORD data using Claude"""
+    """Extract geocodable address from ACORD data using Claude and geocode it with Google"""
     import boto3
+    import requests
     from botocore.exceptions import ClientError
 
     print(f"[GEOCODE] Starting address extraction...")
     print(f"[GEOCODE] Input data: {json.dumps(acord_data, indent=2)}")
+
+    def call_google_geocoding_api(address: str) -> dict:
+        """Call Google Geocoding API with the extracted address"""
+        google_api_key = os.environ.get('GOOGLE_API_TOKEN')
+        if not google_api_key:
+            print(f"[GEOCODE] No Google API key found")
+            return {"error": "Google API key not configured"}
+
+        print(f"[GEOCODE] Calling Google Geocoding API for address: '{address}'")
+
+        try:
+            url = "https://maps.googleapis.com/maps/api/geocode/json"
+            params = {
+                "address": address,
+                "key": google_api_key
+            }
+
+            print(f"[GEOCODE] Making request to: {url}")
+            print(f"[GEOCODE] With params: {params}")
+
+            response = requests.get(url, params=params, timeout=10)
+            response.raise_for_status()
+
+            geocoding_result = response.json()
+            print(f"[GEOCODE] Google API response: {json.dumps(geocoding_result, indent=2)}")
+
+            return geocoding_result
+
+        except requests.exceptions.RequestException as e:
+            print(f"[GEOCODE] Google API request failed: {str(e)}")
+            return {"error": f"Google API request failed: {str(e)}"}
+        except Exception as e:
+            print(f"[GEOCODE] Unexpected error calling Google API: {str(e)}")
+            return {"error": f"Unexpected error: {str(e)}"}
 
     try:
         # Setup Bedrock client
@@ -162,6 +202,15 @@ def extract_geocodable_address(acord_data: dict) -> dict:
                 raise ValueError("Response does not contain 'address' field")
 
             print(f"[GEOCODE] Successfully extracted address: {result['address']}")
+
+            # Call Google Geocoding API with the extracted address
+            extracted_address = result['address']
+            geocoding_results = call_google_geocoding_api(extracted_address)
+
+            # Add geocoding results to the response
+            result['geocoding_results'] = geocoding_results
+
+            print(f"[GEOCODE] Final result with geocoding: {json.dumps(result, indent=2)}")
             return result
 
         except json.JSONDecodeError as e:
@@ -177,10 +226,22 @@ def extract_geocodable_address(acord_data: dict) -> dict:
                 if address_match:
                     extracted_address = address_match.group(1)
                     print(f"[GEOCODE] Manually extracted address: {extracted_address}")
-                    return {"address": extracted_address}
+
+                    # Still try to geocode the manually extracted address
+                    geocoding_results = call_google_geocoding_api(extracted_address)
+
+                    return {
+                        "address": extracted_address,
+                        "geocoding_results": geocoding_results
+                    }
 
             # Return a fallback response
-            return {"address": "Unable to parse address", "error": f"JSON parsing failed: {str(e)}", "raw_response": response_text}
+            return {
+                "address": "Unable to parse address",
+                "error": f"JSON parsing failed: {str(e)}",
+                "raw_response": response_text,
+                "geocoding_results": {"error": "No address to geocode"}
+            }
 
     except Exception as e:
         error_msg = f"Address extraction failed: {str(e)}"
@@ -188,7 +249,11 @@ def extract_geocodable_address(acord_data: dict) -> dict:
         print(f"[GEOCODE] Exception type: {type(e)}")
         import traceback
         print(f"[GEOCODE] Full traceback: {traceback.format_exc()}")
-        return {"address": "Error extracting address", "error": error_msg}
+        return {
+            "address": "Error extracting address",
+            "error": error_msg,
+            "geocoding_results": {"error": "Address extraction failed"}
+        }
 
 # Authentication setup - same as acord_api.py
 security = HTTPBearer()
