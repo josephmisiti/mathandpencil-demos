@@ -9,6 +9,7 @@ import FloodZoneOverlay from "./FloodZoneOverlay";
 import SloshOverlay from "./SloshOverlay";
 import FloodZoneLegend from "./FloodZoneLegend";
 import SloshLegend from "./SloshLegend";
+import PdfUploadDropzone from "./PdfUploadDropzone";
 import { SLOSH_CATEGORIES, SloshCategory } from "../constants/slosh";
 
 export default function MapView({
@@ -19,16 +20,16 @@ export default function MapView({
 }: MapProps) {
   const [selectedMarker, setSelectedMarker] = useState<Location | null>(null);
   const [highResEnabled, setHighResEnabled] = useState(false);
-const [floodZoneEnabled, setFloodZoneEnabled] = useState(false);
-const [sloshEnabled, setSloshEnabled] = useState<Record<SloshCategory, boolean>>(
-  () => {
-    const initial = {} as Record<SloshCategory, boolean>;
-    SLOSH_CATEGORIES.forEach((category) => {
-      initial[category] = false;
-    });
-    return initial;
-  }
-);
+  const [floodZoneEnabled, setFloodZoneEnabled] = useState(false);
+  const [sloshEnabled, setSloshEnabled] = useState<Record<SloshCategory, boolean>>(
+    () => {
+      const initial = {} as Record<SloshCategory, boolean>;
+      SLOSH_CATEGORIES.forEach((category) => {
+        initial[category] = false;
+      });
+      return initial;
+    }
+  );
   const [highResErrorMessage, setHighResErrorMessage] = useState<string | null>(
     null
   );
@@ -124,6 +125,9 @@ const [sloshEnabled, setSloshEnabled] = useState<Record<SloshCategory, boolean>>
 
   return (
     <div ref={mapContainerRef} className="relative h-screen w-screen">
+      <div className="absolute inset-x-0 top-4 z-30 flex justify-center px-4">
+        <PdfUploadDropzone />
+      </div>
       <MapControls
         highResEnabled={highResEnabled}
         onHighResToggle={handleHighResToggle}
