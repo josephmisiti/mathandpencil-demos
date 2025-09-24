@@ -9,7 +9,6 @@ import FloodZoneOverlay from "./FloodZoneOverlay";
 import SloshOverlay from "./SloshOverlay";
 import FloodZoneLegend from "./FloodZoneLegend";
 import SloshLegend from "./SloshLegend";
-import PdfUploadDropzone from "./PdfUploadDropzone";
 import { SLOSH_CATEGORIES, SloshCategory } from "../constants/slosh";
 
 export default function MapView({
@@ -125,9 +124,6 @@ export default function MapView({
 
   return (
     <div ref={mapContainerRef} className="relative h-screen w-screen">
-      <div className="absolute inset-x-0 top-4 z-30 flex justify-center px-4">
-        <PdfUploadDropzone />
-      </div>
       <MapControls
         highResEnabled={highResEnabled}
         onHighResToggle={handleHighResToggle}
