@@ -147,6 +147,64 @@ def build_output_filename(
     return f"{prefix}_{category}_{suffix}_{sanitized_tag}.cog.tif"
 
 
+def load_completed_manifest(
+    dataset: Dict[str, str],
+    run_tag: str,
+) -> Optional[Dict[str, object]]:
+    """Return the manifest if the dataset already has outputs for ``run_tag``."""
+
+    output_dir = PROCESSED_ROOT / dataset["processed_subdir"]
+    manifest_path = output_dir / "manifest.json"
+    if not manifest_path.exists():
+        return None
+
+    try:
+        manifest = json.loads(manifest_path.read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.warning("Failed to read manifest %s: %s", manifest_path, exc)
+        return None
+
+    if manifest.get("run_tag") != run_tag:
+        return None
+
+    categories = manifest.get("categories")
+    if not isinstance(categories, dict) or not categories:
+        return None
+
+    expected_suffixes = {config["suffix"] for config in SLOSH_ZOOM_CONFIGS}
+
+    for category, category_info in categories.items():
+        if not isinstance(category_info, dict):
+            return None
+        cogs = category_info.get("cogs")
+        if not isinstance(cogs, dict):
+            return None
+        missing_suffixes = expected_suffixes - set(cogs)
+        if missing_suffixes:
+            logger.info(
+                "%s %s missing expected COGs for suffix(es) %s; reprocessing",
+                dataset["description"],
+                category,
+                ", ".join(sorted(missing_suffixes)),
+            )
+            return None
+        for suffix in expected_suffixes:
+            filename = cogs.get(suffix)
+            if not filename:
+                return None
+            expected_path = output_dir / filename
+            if not expected_path.exists():
+                logger.warning(
+                    "Expected output missing for %s %s (%s)",
+                    dataset["description"],
+                    category,
+                    expected_path,
+                )
+                return None
+
+    return manifest
+
+
 RAW_ROOT = Path("/data/raw")
 PROCESSED_ROOT = Path("/data/processed")
 
@@ -226,6 +284,15 @@ def process_single_dataset(
             input_zip,
         )
         return None
+
+    existing_manifest = load_completed_manifest(dataset, run_tag)
+    if existing_manifest:
+        logger.info(
+            "Skipping %s; already processed for run tag %s",
+            dataset["description"],
+            run_tag,
+        )
+        return existing_manifest
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
