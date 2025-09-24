@@ -171,8 +171,10 @@ export default function PdfUploadDropzone({
             // Log structured data like endpoint_test.py does
             if (progressData.result) {
               const result = progressData.result;
-              console.log(`📄 ACORD Type: ${result.acord_type || 'Unknown'}`);
-              console.log(`📊 OCR Text Length: ${result.text_length || 0} characters`);
+              console.log(`📄 ACORD Type: ${result.acord_type || "Unknown"}`);
+              console.log(
+                `📊 OCR Text Length: ${result.text_length || 0} characters`
+              );
 
               if (result.extracted_data) {
                 console.log("🎯 Structured data extracted successfully");
@@ -183,20 +185,55 @@ export default function PdfUploadDropzone({
                 geocodeAddress(result.extracted_data as Record<string, unknown>)
                   .then((geocodeResult) => {
                     console.info("🗺️ Geocoding completed successfully!");
-                    console.info("📍 Extracted Address:", geocodeResult.address);
+                    console.info(
+                      "📍 Extracted Address:",
+                      geocodeResult.address
+                    );
 
-                    if (geocodeResult.geocoding_results?.results && geocodeResult.geocoding_results.results.length > 0) {
-                      const firstResult = geocodeResult.geocoding_results.results[0];
+                    if (
+                      geocodeResult.geocoding_results?.results &&
+                      geocodeResult.geocoding_results.results.length > 0
+                    ) {
+                      const firstResult =
+                        geocodeResult.geocoding_results.results[0];
                       console.info("🌍 Google Geocoding Results:");
-                      console.info("   📍 Formatted Address:", firstResult.formatted_address);
+                      console.info(
+                        "   📍 Formatted Address:",
+                        firstResult.formatted_address
+                      );
                       console.info("   🗺️ Coordinates:", {
                         lat: firstResult.geometry.location.lat,
                         lng: firstResult.geometry.location.lng
                       });
+
+                      // Update URL with geocoding results
+                      const url = new URL(window.location.href);
+                      url.searchParams.set(
+                        "lat",
+                        firstResult.geometry.location.lat.toString()
+                      );
+                      url.searchParams.set(
+                        "lng",
+                        firstResult.geometry.location.lng.toString()
+                      );
+                      url.searchParams.set("zoom", "18");
+                      url.searchParams.set(
+                        "address",
+                        encodeURIComponent(firstResult.formatted_address)
+                      );
+
+                      console.info("🔗 Updating URL:", url.toString());
+                      window.history.pushState({}, "", url.toString());
+
+                      // Trigger a page reload to update the map
+                      window.location.reload();
                     }
 
                     if (geocodeResult.geocoding_results?.error) {
-                      console.warn("⚠️ Geocoding API error:", geocodeResult.geocoding_results.error);
+                      console.warn(
+                        "⚠️ Geocoding API error:",
+                        geocodeResult.geocoding_results.error
+                      );
                     }
 
                     console.info("📋 Full Geocoding Response:", geocodeResult);
