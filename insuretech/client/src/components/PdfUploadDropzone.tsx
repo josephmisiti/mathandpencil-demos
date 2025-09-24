@@ -164,6 +164,21 @@ export default function PdfUploadDropzone({
 
           // Handle completion like endpoint_test.py lines 102-143
           if (status === "completed") {
+            console.log("🎉 Processing completed successfully!");
+            console.log("📊 Final results:", progressData.result);
+
+            // Log structured data like endpoint_test.py does
+            if (progressData.result) {
+              const result = progressData.result;
+              console.log(`📄 ACORD Type: ${result.acord_type || 'Unknown'}`);
+              console.log(`📊 OCR Text Length: ${result.text_length || 0} characters`);
+
+              if (result.extracted_data) {
+                console.log("🎯 Structured data extracted successfully");
+                console.log("📋 Extracted Data:", result.extracted_data);
+              }
+            }
+
             setState((prev) => ({
               ...prev,
               phase: "completed",
