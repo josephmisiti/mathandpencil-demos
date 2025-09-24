@@ -4,6 +4,9 @@ const rawBaseUrl = (import.meta.env.VITE_ACORD_API_BASE_URL || "").trim();
 const API_BASE_URL = rawBaseUrl.replace(/\/+$/, "");
 const API_TOKEN = (import.meta.env.VITE_ACORD_API_TOKEN || "").trim();
 
+const rawGeocodingUrl = (import.meta.env.VITE_GEOCODING_ADDRESS_BASE_URL || "").trim();
+const GEOCODING_API_BASE_URL = rawGeocodingUrl.replace(/\/+$/, "");
+
 export interface UploadResponse {
   job_id: string;
   status?: string;
@@ -16,6 +19,24 @@ export interface ProgressResponse {
   progress?: number;
   message?: string;
   result?: Record<string, unknown> | null;
+  error?: string;
+}
+
+export interface GeocodeResponse {
+  address: string;
+  geocoding_results?: {
+    results?: Array<{
+      formatted_address: string;
+      geometry: {
+        location: {
+          lat: number;
+          lng: number;
+        };
+      };
+    }>;
+    status?: string;
+    error?: string;
+  };
   error?: string;
 }
 
@@ -114,6 +135,34 @@ export async function fetchProgress(
   }
 
   const data = (await response.json()) as ProgressResponse;
+  return data;
+}
+
+export async function geocodeAddress(acordData: Record<string, unknown>): Promise<GeocodeResponse> {
+  if (!GEOCODING_API_BASE_URL) {
+    throw new Error("Geocoding API base URL is not configured. Set VITE_GEOCODING_ADDRESS_BASE_URL in your environment.");
+  }
+
+  console.info("[GEOCODE] Sending ACORD data to geocoding API:", acordData);
+
+  const response = await fetch(`${GEOCODING_API_BASE_URL}/extract-address`, {
+    method: "POST",
+    headers: {
+      ...buildHeaders(),
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      acord_data: acordData
+    })
+  });
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(message || `Geocoding request failed with status ${response.status}`);
+  }
+
+  const data = (await response.json()) as GeocodeResponse;
+  console.info("[GEOCODE] Received geocoding response:", data);
   return data;
 }
 

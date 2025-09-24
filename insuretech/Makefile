@@ -9,3 +9,4 @@ install:
 
 deploy:
 	modal deploy backend/services/acord_api.py
+	modal deploy backend/services/geocodable_address_api.py

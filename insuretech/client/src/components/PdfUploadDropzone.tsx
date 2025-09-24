@@ -3,6 +3,7 @@ import { FileError, FileRejection, useDropzone } from "react-dropzone";
 import {
   ProgressResponse,
   fetchProgress,
+  geocodeAddress,
   useAcordApiConfig
 } from "../services/acordApi";
 
@@ -176,6 +177,33 @@ export default function PdfUploadDropzone({
               if (result.extracted_data) {
                 console.log("🎯 Structured data extracted successfully");
                 console.log("📋 Extracted Data:", result.extracted_data);
+
+                // Send extracted data to geocoding API
+                console.log("🌍 Sending ACORD data to geocoding API...");
+                geocodeAddress(result.extracted_data as Record<string, unknown>)
+                  .then((geocodeResult) => {
+                    console.info("🗺️ Geocoding completed successfully!");
+                    console.info("📍 Extracted Address:", geocodeResult.address);
+
+                    if (geocodeResult.geocoding_results?.results && geocodeResult.geocoding_results.results.length > 0) {
+                      const firstResult = geocodeResult.geocoding_results.results[0];
+                      console.info("🌍 Google Geocoding Results:");
+                      console.info("   📍 Formatted Address:", firstResult.formatted_address);
+                      console.info("   🗺️ Coordinates:", {
+                        lat: firstResult.geometry.location.lat,
+                        lng: firstResult.geometry.location.lng
+                      });
+                    }
+
+                    if (geocodeResult.geocoding_results?.error) {
+                      console.warn("⚠️ Geocoding API error:", geocodeResult.geocoding_results.error);
+                    }
+
+                    console.info("📋 Full Geocoding Response:", geocodeResult);
+                  })
+                  .catch((error) => {
+                    console.error("❌ Geocoding failed:", error);
+                  });
               }
             }
 
