@@ -151,6 +151,8 @@ export default function MapView({
 
         if (measureMode) {
           console.log("Canceling measurement mode");
+          event.preventDefault();
+          event.stopPropagation();
           setMeasureMode(false);
           setPolygonPoints([]);
           setPolygonArea(null);
@@ -168,6 +170,15 @@ export default function MapView({
       document.removeEventListener("keydown", handler);
     };
   }, [measureMode, contextMenu]);
+
+  // Cleanup when measurement mode is disabled
+  useEffect(() => {
+    if (!measureMode) {
+      console.log("Measurement mode disabled - clearing polygon data");
+      setPolygonPoints([]);
+      setPolygonArea(null);
+    }
+  }, [measureMode]);
 
   return (
     <div ref={mapContainerRef} className="relative h-screen w-screen">

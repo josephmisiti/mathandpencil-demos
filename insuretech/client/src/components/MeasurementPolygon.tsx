@@ -99,7 +99,7 @@ export default function MeasurementPolygon({ points, area }: MeasurementPolygonP
     }
 
     // Show area label when area is calculated and polygon exists
-    if (area && points.length >= 3) {
+    if (area && area > 0 && points.length >= 3) {
       const center = getPolygonCenter(points);
 
       // Convert to different units
