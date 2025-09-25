@@ -9,6 +9,7 @@ import html2canvas from "html2canvas";
 import DrawingCanvas from "./DrawingCanvas";
 import {
   RoofAnalysisResult,
+  downloadRoofAnalysisReport,
   fetchRoofAnalysisProgress,
   startRoofAnalysis,
   useRoofAnalysisApiConfig
@@ -68,13 +69,115 @@ const PROGRESS_POLL_INTERVAL = 2500;
 const normalizeProgress = (value: number | undefined, fallback: number) => {
   if (typeof value !== "number" || Number.isNaN(value)) {
     return fallback;
-}
+  }
 
   if (value <= 1 && value >= 0) {
     return Math.round(value * 100);
   }
 
   return Math.round(Math.max(0, Math.min(100, value)));
+};
+
+const PIPELINE_STAGES = [
+  {
+    id: "upload",
+    label: "Upload image",
+    matches: ["capturing", "uploaded", "received", "image_saved"]
+  },
+  {
+    id: "analysis",
+    label: "AI analysis",
+    matches: ["invoking_model", "parsing_response"]
+  },
+  {
+    id: "report",
+    label: "Generate report",
+    matches: ["analysis_complete", "report_generation"]
+  },
+  {
+    id: "complete",
+    label: "Report ready",
+    matches: ["finished"]
+  }
+] as const;
+
+type PipelineStageId = (typeof PIPELINE_STAGES)[number]["id"];
+type PipelineStageStatus = "pending" | "active" | "done" | "failed";
+
+const STAGE_ERROR_MAP: Record<string, PipelineStageId> = {
+  decode_error: "upload",
+  empty_response: "analysis",
+  json_parse_error: "analysis",
+  report_generation_error: "report",
+  error: "analysis"
+};
+
+const PIPELINE_INDICATOR_CLASS: Record<PipelineStageStatus, string> = {
+  done: "bg-emerald-500",
+  active: "bg-blue-500 animate-pulse",
+  pending: "bg-slate-300",
+  failed: "bg-rose-500"
+};
+
+const PIPELINE_TEXT_CLASS: Record<PipelineStageStatus, string> = {
+  done: "text-emerald-700",
+  active: "text-blue-900 font-medium",
+  pending: "text-slate-500",
+  failed: "text-rose-600 font-semibold"
+};
+
+const resolvePipelineStageId = (stage: string | null): PipelineStageId | null => {
+  if (!stage) {
+    return null;
+  }
+
+  if (STAGE_ERROR_MAP[stage]) {
+    return STAGE_ERROR_MAP[stage];
+  }
+
+  for (const entry of PIPELINE_STAGES) {
+    if (entry.matches.includes(stage)) {
+      return entry.id;
+    }
+  }
+
+  return null;
+};
+
+const derivePipelineStatuses = (
+  stage: string | null,
+  phase: JobPhase
+): PipelineStageStatus[] => {
+  const stageId = resolvePipelineStageId(stage);
+  const activeIndex = stageId
+    ? PIPELINE_STAGES.findIndex((entry) => entry.id === stageId)
+    : -1;
+  const isFailed = phase === "error";
+
+  return PIPELINE_STAGES.map((entry, index) => {
+    if (phase === "completed") {
+      return "done";
+    }
+
+    if (isFailed && activeIndex === index) {
+      return "failed";
+    }
+
+    if (activeIndex === -1) {
+      const hasStarted = phase !== "idle";
+      return hasStarted && index === 0 ? "active" : "pending";
+    }
+
+    if (index < activeIndex) {
+      return "done";
+    }
+
+    if (index === activeIndex) {
+      return isFailed ? "failed" : "active";
+    }
+
+    return "pending";
+  });
 };
 
 const formatLabel = (label: string | null | undefined) => {
@@ -116,11 +219,17 @@ const RoofAnalysis: React.FC<RoofAnalysisProps> = ({
 }) => {
   const [selectedBounds, setSelectedBounds] = useState<Bounds | null>(null);
   const [jobState, setJobState] = useState<JobState>(initialJobState);
+  const [downloadingReport, setDownloadingReport] = useState(false);
+  const [downloadError, setDownloadError] = useState<string | null>(null);
   const pollIntervalRef = useRef<number | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
   const { baseUrl: apiBaseUrl, hasToken } = useRoofAnalysisApiConfig();
   const apiConfigured = useMemo(() => Boolean(apiBaseUrl), [apiBaseUrl]);
+  const pipelineStatuses = useMemo(
+    () => derivePipelineStatuses(jobState.stage, jobState.phase),
+    [jobState.stage, jobState.phase]
+  );
 
   const stopPolling = useCallback(() => {
     if (pollIntervalRef.current !== null) {
@@ -138,6 +247,8 @@ const RoofAnalysis: React.FC<RoofAnalysisProps> = ({
     stopPolling();
     setJobState(initialJobState);
     setSelectedBounds(null);
+    setDownloadError(null);
+    setDownloadingReport(false);
   }, [stopPolling]);
 
   const cancelDrawingOnly = useCallback(() => {
@@ -156,6 +267,11 @@ const RoofAnalysis: React.FC<RoofAnalysisProps> = ({
   }, [stopPolling, onOverlayCancel]);
 
   useEffect(() => () => stopPolling(), [stopPolling]);
+
+  useEffect(() => {
+    setDownloadError(null);
+    setDownloadingReport(false);
+  }, [jobState.jobId]);
 
   const startPolling = useCallback(
     (jobId: string) => {
@@ -222,6 +338,35 @@ const RoofAnalysis: React.FC<RoofAnalysisProps> = ({
     [stopPolling]
   );
 
+  const handleReportDownload = useCallback(async () => {
+    if (!jobState.jobId) {
+      return;
+    }
+
+    setDownloadError(null);
+    setDownloadingReport(true);
+
+    try {
+      const { blob, filename } = await downloadRoofAnalysisReport(jobState.jobId);
+      const blobUrl = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = blobUrl;
+      anchor.download = filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+      URL.revokeObjectURL(blobUrl);
+    } catch (error) {
+      setDownloadError(
+        error instanceof Error
+          ? error.message
+          : "Failed to download roof analysis report."
+      );
+    } finally {
+      setDownloadingReport(false);
+    }
+  }, [jobState.jobId]);
+
   const handleDrawComplete = useCallback(
     async (bounds: Bounds) => {
       if (!apiConfigured) {
@@ -270,6 +415,8 @@ const RoofAnalysis: React.FC<RoofAnalysisProps> = ({
       }
 
       stopPolling();
+      setDownloadError(null);
+      setDownloadingReport(false);
       setSelectedBounds(bounds);
       setJobState({
         phase: "capturing",
@@ -472,7 +619,8 @@ const RoofAnalysis: React.FC<RoofAnalysisProps> = ({
 
       {(jobState.phase === "capturing" ||
         jobState.phase === "queued" ||
-        jobState.phase === "processing") && (
+        jobState.phase === "processing" ||
+        jobState.phase === "error") && (
         <div className="mt-3 rounded-md border border-blue-200 bg-blue-50 px-3 py-3">
           <div className="flex items-center justify-between text-xs font-medium text-blue-900">
             <span>{jobState.message || "Processing roof analysis"}</span>
@@ -489,6 +637,21 @@ const RoofAnalysis: React.FC<RoofAnalysisProps> = ({
               Current stage: {formatLabel(jobState.stage)}
             </div>
           )}
+          <div className="mt-3 space-y-1">
+            {PIPELINE_STAGES.map((pipelineStage, index) => {
+              const status = pipelineStatuses[index] ?? "pending";
+              return (
+                <div key={pipelineStage.id} className="flex items-center gap-2 text-xs">
+                  <span
+                    className={`h-2.5 w-2.5 rounded-full ${PIPELINE_INDICATOR_CLASS[status]}`}
+                  />
+                  <span className={PIPELINE_TEXT_CLASS[status]}>
+                    {pipelineStage.label}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 
@@ -510,6 +673,11 @@ const RoofAnalysis: React.FC<RoofAnalysisProps> = ({
             {jobState.lastUpdated && (
               <div className="text-xs text-emerald-700">
                 Updated {new Date(jobState.lastUpdated).toLocaleTimeString()}
+              </div>
+            )}
+            {jobState.result?.report_generated_at && (
+              <div className="text-xs text-emerald-700">
+                Report generated {new Date(jobState.result.report_generated_at).toLocaleString()}
               </div>
             )}
           </div>
@@ -745,7 +913,30 @@ const RoofAnalysis: React.FC<RoofAnalysisProps> = ({
                     </code>
                   </div>
                 )}
+                {jobState.result.artifacts.report_path && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="min-w-0 flex-1">
+                      <span className="font-medium text-slate-700">Report:</span>{" "}
+                      <code className="break-all text-slate-500">
+                        {jobState.result.artifacts.report_path}
+                      </code>
+                    </div>
+                    <button
+                      type="button"
+                      className="rounded border border-emerald-200 px-2 py-1 text-xs font-medium text-emerald-700 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60"
+                      onClick={handleReportDownload}
+                      disabled={downloadingReport}
+                    >
+                      {downloadingReport ? "Preparing download..." : "Download PDF"}
+                    </button>
+                  </div>
+                )}
               </div>
+              {downloadError && (
+                <div className="mt-2 rounded border border-rose-200 bg-rose-50 px-2 py-1 text-xs text-rose-600">
+                  {downloadError}
+                </div>
+              )}
             </section>
           )}
         </div>

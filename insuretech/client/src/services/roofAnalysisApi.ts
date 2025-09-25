@@ -82,7 +82,9 @@ export interface RoofAnalysisResult {
   artifacts?: {
     image_path?: string;
     analysis_path?: string;
+    report_path?: string;
   };
+  report_generated_at?: string;
 }
 
 export interface RoofProgressResponse {
@@ -157,6 +159,61 @@ export async function fetchRoofAnalysisProgress(
   }
 
   return (await response.json()) as RoofProgressResponse;
+}
+
+const CONTENT_DISPOSITION_FILENAME = /filename\*=UTF-8''(.+)|filename="?([^";]+)"?/i;
+
+function decodeContentDisposition(disposition: string | null): string | null {
+  if (!disposition) {
+    return null;
+  }
+
+  const matches = disposition.match(CONTENT_DISPOSITION_FILENAME);
+  if (!matches) {
+    return null;
+  }
+
+  const encoded = matches[1];
+  if (encoded) {
+    try {
+      return decodeURIComponent(encoded);
+    } catch {
+      return encoded;
+    }
+  }
+
+  const simple = matches[2];
+  return simple ? simple.trim() : null;
+}
+
+export async function downloadRoofAnalysisReport(
+  jobId: string
+): Promise<{ blob: Blob; filename: string }> {
+  if (!API_BASE_URL) {
+    throw missingBaseUrlError;
+  }
+
+  const response = await fetch(
+    `${API_BASE_URL}/report/${encodeURIComponent(jobId)}`,
+    {
+      method: "GET",
+      headers: buildHeaders()
+    }
+  );
+
+  if (!response.ok) {
+    const message = await response.text();
+    throw new Error(message || `Roof analysis report download failed (${response.status})`);
+  }
+
+  const disposition = response.headers.get("Content-Disposition");
+  const filename =
+    decodeContentDisposition(disposition) || `roof-analysis-${jobId}.pdf`;
+
+  return {
+    blob: await response.blob(),
+    filename
+  };
 }
 
 export function useRoofAnalysisApiConfig(): {

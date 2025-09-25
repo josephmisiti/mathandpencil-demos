@@ -1,11 +1,16 @@
 import json
-import modal
 import os
+import shutil
+import subprocess
+import tempfile
 import time
 import uuid
+from datetime import datetime
+
+import modal
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 
@@ -17,11 +22,21 @@ api_secret = modal.Secret.from_name("acord-api-secret")
 aws_secret = modal.Secret.from_name("aws-credentials")
 
 # Modal base image with dependencies for both FastAPI and Bedrock calls
-image = modal.Image.debian_slim().pip_install(
-    "fastapi",
-    "pydantic",
-    "boto3",
-    "botocore",
+image = (
+    modal.Image.debian_slim()
+    .apt_install(
+        "texlive-latex-base",
+        "texlive-latex-extra",
+        "texlive-fonts-recommended",
+        "texlive-pictures",
+        "latexmk",
+    )
+    .pip_install(
+        "fastapi",
+        "pydantic",
+        "boto3",
+        "botocore",
+    )
 )
 
 # Request model
@@ -121,6 +136,150 @@ IMPORTANT GUIDELINES:
 """
 
 
+class ReportGenerationError(Exception):
+    """Raised when PDF report compilation fails."""
+
+    def __init__(self, message: str, *, error: str | None = None):
+        super().__init__(message)
+        self.error = error
+
+
+def latex_escape(value: str | None) -> str:
+    """Escape special characters to keep LaTeX compilation stable."""
+    if value is None:
+        return "Unknown"
+
+    text = str(value)
+    replacements = {
+        "\\": r"\textbackslash{}",
+        "&": r"\&",
+        "%": r"\%",
+        "$": r"\$",
+        "#": r"\#",
+        "_": r"\_",
+        "{": r"\{",
+        "}": r"\}",
+        "~": r"\textasciitilde{}",
+        "^": r"\textasciicircum{}",
+    }
+    for original, escaped in replacements.items():
+        text = text.replace(original, escaped)
+    text = text.replace("\n", r"\\ ")
+    return text
+
+
+def format_value(value: object) -> str:
+    """Convert arbitrary values into LaTeX-safe strings."""
+    if value is None:
+        return "Unknown"
+    if isinstance(value, list):
+        if not value:
+            return "None"
+        joined = ", ".join(str(item) for item in value)
+        return latex_escape(joined)
+    return latex_escape(str(value))
+
+
+def build_latex_report(
+    *,
+    job_id: str,
+    model_id: str,
+    analysis_data: dict,
+    report_timestamp: str,
+    image_filename: str,
+) -> str:
+    """Create the LaTeX representation of the roof analysis report."""
+    roof_analysis = analysis_data.get("roof_analysis", {})
+    quality = roof_analysis.get("quality", {})
+    age = roof_analysis.get("age", {})
+    shape = roof_analysis.get("shape", {})
+    cover = roof_analysis.get("cover", {})
+    overall = roof_analysis.get("overall_assessment", {})
+    metadata = roof_analysis.get("image_analysis_metadata", {})
+
+    sections = [
+        r"\section*{Roof Image}",
+        r"\begin{figure}[H]",
+        r"\centering",
+        f"\\includegraphics[width=0.85\\textwidth]{{{image_filename}}}",
+        r"\end{figure}",
+        "",
+        r"\section*{Job Summary}",
+        f"\\textbf{{Job ID}}: {format_value(job_id)}\\",
+        f"\\textbf{{Model ID}}: {format_value(model_id)}\\",
+        f"\\textbf{{Generated At}}: {format_value(report_timestamp)}\\",
+        "",
+        r"\section*{Quality Assessment}",
+        f"\\textbf{{Overall Rating}}: {format_value(quality.get('overall_rating'))}\\",
+        f"\\textbf{{Condition Score}}: {format_value(quality.get('condition_score'))}\\",
+        f"\\textbf{{Visible Issues}}: {format_value(quality.get('visible_issues'))}\\",
+        f"\\textbf{{Quality Indicators}}: {format_value(quality.get('quality_indicators'))}\\",
+        f"\\textbf{{Analysis Reasoning}}: {format_value(quality.get('analysis_reasoning'))}\\",
+        "",
+        r"\section*{Age Estimation}",
+        f"\\textbf{{Estimated Age}}: {format_value(age.get('estimated_age_years'))}\\",
+        f"\\textbf{{Age Category}}: {format_value(age.get('age_category'))}\\",
+        f"\\textbf{{Weathering Indicators}}: {format_value(age.get('weathering_indicators'))}\\",
+        f"\\textbf{{Analysis Reasoning}}: {format_value(age.get('analysis_reasoning'))}\\",
+        "",
+        r"\section*{Roof Shape}",
+        f"\\textbf{{Primary Shape}}: {format_value(shape.get('primary_shape'))}\\",
+        f"\\textbf{{Complexity}}: {format_value(shape.get('complexity'))}\\",
+        f"\\textbf{{Roof Planes}}: {format_value(shape.get('roof_planes'))}\\",
+        f"\\textbf{{Pitch Estimate}}: {format_value(shape.get('pitch_estimate'))}\\",
+        f"\\textbf{{Architectural Features}}: {format_value(shape.get('architectural_features'))}\\",
+        f"\\textbf{{Analysis Reasoning}}: {format_value(shape.get('analysis_reasoning'))}\\",
+        "",
+        r"\section*{Roof Cover Material}",
+        f"\\textbf{{Material Type}}: {format_value(cover.get('material_type'))}\\",
+        f"\\textbf{{Material Confidence}}: {format_value(cover.get('material_confidence'))}\\",
+        f"\\textbf{{Color Description}}: {format_value(cover.get('color_description'))}\\",
+        f"\\textbf{{Texture Pattern}}: {format_value(cover.get('texture_pattern'))}\\",
+        f"\\textbf{{Secondary Materials}}: {format_value(cover.get('secondary_materials'))}\\",
+        f"\\textbf{{Analysis Reasoning}}: {format_value(cover.get('analysis_reasoning'))}\\",
+        "",
+        r"\section*{Overall Assessment}",
+        f"\\textbf{{Summary}}: {format_value(overall.get('summary'))}\\",
+        f"\\textbf{{Recommendations}}: {format_value(overall.get('recommendations'))}\\",
+        f"\\textbf{{Analysis Limitations}}: {format_value(overall.get('analysis_limitations'))}\\",
+        "",
+        r"\section*{Image Analysis Metadata}",
+        f"\\textbf{{Image Quality}}: {format_value(metadata.get('image_quality'))}\\",
+        f"\\textbf{{Viewing Angle}}: {format_value(metadata.get('viewing_angle'))}\\",
+        f"\\textbf{{Resolution Adequacy}}: {format_value(metadata.get('resolution_adequacy'))}\\",
+        f"\\textbf{{Weather Conditions}}: {format_value(metadata.get('weather_conditions'))}\\",
+    ]
+
+    sections_content = "\n".join(sections)
+
+    return f"""\\documentclass[11pt]{{article}}
+\\usepackage{{geometry}}
+\\usepackage{{graphicx}}
+\\usepackage{{float}}
+\\usepackage{{enumitem}}
+\\geometry{{margin=1in}}
+\\setlist[itemize]{{itemsep=0pt, parsep=2pt, topsep=4pt}}
+\\title{{Roof Analysis Report}}
+\\date{{{latex_escape(report_timestamp)}}}
+\\begin{{document}}
+\\maketitle
+
+{sections_content}
+
+\\end{{document}}
+"""
+
+
+def wait_for_path(path: str, *, timeout: float = 10.0, interval: float = 0.25) -> bool:
+    """Poll until the given path exists or the timeout elapses."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if os.path.exists(path):
+            return True
+        time.sleep(interval)
+    return os.path.exists(path)
+
+
 def update_progress(
     job_id: str,
     status: str,
@@ -149,6 +308,81 @@ def update_progress(
         f"[ROOF] Job {job_id}: status={status} stage={stage} progress={progress} message='{message}'"
     )
 
+def generate_roof_report(
+    job_id: str,
+    model_id: str,
+    image_path: str,
+    analysis_path: str,
+) -> tuple[str, str]:
+    """Compile the LaTeX report and return the PDF path and timestamp."""
+
+    if not wait_for_path(image_path):
+        raise ReportGenerationError(f"Roof image not found at {image_path}")
+    if not wait_for_path(analysis_path):
+        raise ReportGenerationError(f"Analysis JSON not found at {analysis_path}")
+
+    with open(analysis_path, "r", encoding="utf-8") as analysis_file:
+        analysis_data = json.load(analysis_file)
+
+    report_timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+
+    try:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _, image_ext = os.path.splitext(image_path)
+            local_image_name = f"roof_image{image_ext or '.png'}"
+            local_image_path = os.path.join(tmpdir, local_image_name)
+            shutil.copy(image_path, local_image_path)
+
+            latex_content = build_latex_report(
+                job_id=job_id,
+                model_id=model_id,
+                analysis_data=analysis_data,
+                report_timestamp=report_timestamp,
+                image_filename=local_image_name,
+            )
+
+            latex_filename = "roof_analysis.tex"
+            latex_path = os.path.join(tmpdir, latex_filename)
+            with open(latex_path, "w", encoding="utf-8") as latex_file:
+                latex_file.write(latex_content)
+
+            pdflatex_command = ["pdflatex", "-interaction=nonstopmode", latex_filename]
+            for _ in range(2):
+                subprocess.run(
+                    pdflatex_command,
+                    cwd=tmpdir,
+                    check=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                )
+
+            pdf_source = os.path.join(tmpdir, "roof_analysis.pdf")
+            if not os.path.exists(pdf_source):
+                raise ReportGenerationError("Expected PDF artifact not produced by pdflatex")
+
+            reports_dir = "/my-volume/roof-analysis-results/reports"
+            os.makedirs(reports_dir, exist_ok=True)
+            report_basename = os.path.splitext(os.path.basename(analysis_path))[0] or datetime.utcnow().strftime(
+                "%Y-%m-%d_%H-%M-%S"
+            )
+            report_path = os.path.join(reports_dir, f"{report_basename}.pdf")
+            shutil.move(pdf_source, report_path)
+
+    except subprocess.CalledProcessError as exc:
+        error_output = ""
+        if exc.stderr:
+            error_output = exc.stderr.decode("utf-8", errors="replace")
+        elif exc.stdout:
+            error_output = exc.stdout.decode("utf-8", errors="replace")
+        raise ReportGenerationError(
+            "Report generation failed during LaTeX compilation",
+            error=error_output or str(exc),
+        ) from exc
+    except Exception as exc:  # noqa: BLE001 - bubble up rich error detail
+        raise ReportGenerationError(str(exc)) from exc
+
+    return report_path, report_timestamp
+
 
 @app.function(
     image=image,
@@ -158,7 +392,6 @@ def update_progress(
 )
 def process_roof_analysis(image_data: str, job_id: str):
     import base64
-    from datetime import datetime
     import boto3
 
     try:
@@ -327,10 +560,50 @@ def process_roof_analysis(image_data: str, job_id: str):
 
         update_progress(
             job_id,
+            status="processing",
+            stage="analysis_complete",
+            progress=75,
+            message="Roof analysis completed, preparing report",
+            result=result_payload,
+        )
+
+        update_progress(
+            job_id,
+            status="processing",
+            stage="report_generation",
+            progress=85,
+            message="Generating roof analysis report",
+            result=result_payload,
+        )
+
+        try:
+            report_path, report_timestamp = generate_roof_report(
+                job_id,
+                MODEL_ID,
+                image_path,
+                output_path,
+            )
+        except ReportGenerationError as exc:
+            update_progress(
+                job_id,
+                status="failed",
+                stage="report_generation_error",
+                progress=90,
+                message=str(exc) or "Report generation failed",
+                error=exc.error or str(exc),
+            )
+            raise
+
+        artifacts = result_payload.setdefault("artifacts", {})
+        artifacts["report_path"] = report_path
+        result_payload["report_generated_at"] = report_timestamp
+
+        update_progress(
+            job_id,
             status="completed",
             stage="finished",
             progress=100,
-            message="Roof analysis completed",
+            message="Roof analysis report generated",
             result=result_payload,
         )
 
@@ -419,8 +692,25 @@ def get_progress(job_id: str, token: str = Depends(verify_token)):
     return JSONResponse(progress_store[job_id])
 
 
+@web_app.get("/report/{job_id}")
+def download_report(job_id: str, token: str = Depends(verify_token)):
+    if job_id not in progress_store:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    payload = progress_store[job_id]
+    result = payload.get("result") or {}
+    artifacts = result.get("artifacts") or {}
+    report_path = artifacts.get("report_path")
+
+    if not report_path or not os.path.exists(report_path):
+        raise HTTPException(status_code=404, detail="Report not available")
+
+    filename = os.path.basename(report_path) or "roof_analysis.pdf"
+    return FileResponse(report_path, media_type="application/pdf", filename=filename)
+
+
 # Deploy the web app
-@app.function(image=image, secrets=[api_secret])
+@app.function(image=image, secrets=[api_secret], volumes={"/my-volume": volume})
 @modal.asgi_app()
 def fastapi_app():
     return web_app
