@@ -164,20 +164,11 @@ def latex_escape(value: str | None) -> str:
     }
     for original, escaped in replacements.items():
         text = text.replace(original, escaped)
-    text = text.replace("\n", r"\\ ")
+    text = text.replace("\n", " ")
     return text
 
 
-def format_value(value: object) -> str:
-    """Convert arbitrary values into LaTeX-safe strings."""
-    if value is None:
-        return "Unknown"
-    if isinstance(value, list):
-        if not value:
-            return "None"
-        joined = ", ".join(str(item) for item in value)
-        return latex_escape(joined)
-    return latex_escape(str(value))
+
 
 
 def build_latex_report(
@@ -188,90 +179,200 @@ def build_latex_report(
     report_timestamp: str,
     image_filename: str,
 ) -> str:
-    """Create the LaTeX representation of the roof analysis report."""
-    roof_analysis = analysis_data.get("roof_analysis", {})
-    quality = roof_analysis.get("quality", {})
-    age = roof_analysis.get("age", {})
-    shape = roof_analysis.get("shape", {})
-    cover = roof_analysis.get("cover", {})
-    overall = roof_analysis.get("overall_assessment", {})
-    metadata = roof_analysis.get("image_analysis_metadata", {})
+    """Create a simplified LaTeX representation of the roof analysis report."""
 
-    sections = [
-        r"\section*{Roof Image}",
-        r"\begin{figure}[H]",
-        r"\centering",
-        f"\\includegraphics[width=0.85\\textwidth]{{{image_filename}}}",
-        r"\end{figure}",
+    roof_analysis = analysis_data.get("roof_analysis", {}) if isinstance(analysis_data, dict) else {}
+    quality = roof_analysis.get("quality", {}) if isinstance(roof_analysis, dict) else {}
+    age = roof_analysis.get("age", {}) if isinstance(roof_analysis, dict) else {}
+    shape = roof_analysis.get("shape", {}) if isinstance(roof_analysis, dict) else {}
+    cover = roof_analysis.get("cover", {}) if isinstance(roof_analysis, dict) else {}
+    overall = roof_analysis.get("overall_assessment", {}) if isinstance(roof_analysis, dict) else {}
+    metadata = roof_analysis.get("image_analysis_metadata", {}) if isinstance(roof_analysis, dict) else {}
+
+    def inline_value(value: object) -> str:
+        if value in (None, "", [], {}):
+            return r"\emph{Not provided}"
+        if isinstance(value, (list, tuple)):
+            items = [latex_escape(str(item)) for item in value if item]
+            if not items:
+                return r"\emph{Not provided}"
+            return ", ".join(items)
+        return latex_escape(str(value))
+
+    def render_plain_list_lines(items: object) -> list[str]:
+        if isinstance(items, str):
+            normalized = [items]
+        elif isinstance(items, (list, tuple)):
+            normalized = [str(item) for item in items if item]
+        else:
+            normalized = []
+
+        if not normalized:
+            return [r"\emph{None provided}"]
+
+        bullet_lines = [r"\begin{itemize}[leftmargin=1.3em]"]
+        for entry in normalized:
+            bullet_lines.append(f"    \\item {latex_escape(entry)}")
+        bullet_lines.append(r"\end{itemize}")
+        return bullet_lines
+
+    def render_detail_list_lines(pairs: list[tuple[str, object]]) -> list[str]:
+        items = [
+            f"\\textbf{{{latex_escape(label)}:}} {inline_value(value)}"
+            for label, value in pairs
+        ]
+        if not items:
+            items = [r"\textbf{Details:} \emph{Not provided}"]
+
+        bullet_lines = [r"\begin{itemize}[leftmargin=1.3em]"]
+        for entry in items:
+            bullet_lines.append(f"    \\item {entry}")
+        bullet_lines.append(r"\end{itemize}")
+        return bullet_lines
+
+    def render_detail_section_lines(title: str, pairs: list[tuple[str, object]]) -> list[str]:
+        return [
+            f"\\subsection*{{{latex_escape(title)}}}",
+            *render_detail_list_lines(pairs),
+        ]
+
+    def render_plain_list_section_lines(title: str, items: object) -> list[str]:
+        return [
+            f"\\subsection*{{{latex_escape(title)}}}",
+            *render_plain_list_lines(items),
+        ]
+
+    def render_text_section_lines(title: str, text: object) -> list[str]:
+        return [
+            f"\\subsection*{{{latex_escape(title)}}}",
+            inline_value(text),
+        ]
+
+    lines: list[str] = [
+        r"\documentclass[11pt]{article}",
+        r"\usepackage{geometry}",
+        r"\usepackage{graphicx}",
+        r"\usepackage{float}",
+        r"\usepackage{enumitem}",
+        r"\geometry{margin=1in}",
+        r"\setlength{\parskip}{0.6em}",
+        r"\setlength{\parindent}{0pt}",
+        r"\setlist[itemize]{itemsep=0.2em, topsep=0.2em}",
+        r"\begin{document}",
         "",
-        r"\section*{Job Summary}",
-        f"\\textbf{{Job ID}}: {format_value(job_id)}\\",
-        f"\\textbf{{Model ID}}: {format_value(model_id)}\\",
-        f"\\textbf{{Generated At}}: {format_value(report_timestamp)}\\",
-        "",
-        r"\section*{Quality Assessment}",
-        f"\\textbf{{Overall Rating}}: {format_value(quality.get('overall_rating'))}\\",
-        f"\\textbf{{Condition Score}}: {format_value(quality.get('condition_score'))}\\",
-        f"\\textbf{{Visible Issues}}: {format_value(quality.get('visible_issues'))}\\",
-        f"\\textbf{{Quality Indicators}}: {format_value(quality.get('quality_indicators'))}\\",
-        f"\\textbf{{Analysis Reasoning}}: {format_value(quality.get('analysis_reasoning'))}\\",
-        "",
-        r"\section*{Age Estimation}",
-        f"\\textbf{{Estimated Age}}: {format_value(age.get('estimated_age_years'))}\\",
-        f"\\textbf{{Age Category}}: {format_value(age.get('age_category'))}\\",
-        f"\\textbf{{Weathering Indicators}}: {format_value(age.get('weathering_indicators'))}\\",
-        f"\\textbf{{Analysis Reasoning}}: {format_value(age.get('analysis_reasoning'))}\\",
-        "",
-        r"\section*{Roof Shape}",
-        f"\\textbf{{Primary Shape}}: {format_value(shape.get('primary_shape'))}\\",
-        f"\\textbf{{Complexity}}: {format_value(shape.get('complexity'))}\\",
-        f"\\textbf{{Roof Planes}}: {format_value(shape.get('roof_planes'))}\\",
-        f"\\textbf{{Pitch Estimate}}: {format_value(shape.get('pitch_estimate'))}\\",
-        f"\\textbf{{Architectural Features}}: {format_value(shape.get('architectural_features'))}\\",
-        f"\\textbf{{Analysis Reasoning}}: {format_value(shape.get('analysis_reasoning'))}\\",
-        "",
-        r"\section*{Roof Cover Material}",
-        f"\\textbf{{Material Type}}: {format_value(cover.get('material_type'))}\\",
-        f"\\textbf{{Material Confidence}}: {format_value(cover.get('material_confidence'))}\\",
-        f"\\textbf{{Color Description}}: {format_value(cover.get('color_description'))}\\",
-        f"\\textbf{{Texture Pattern}}: {format_value(cover.get('texture_pattern'))}\\",
-        f"\\textbf{{Secondary Materials}}: {format_value(cover.get('secondary_materials'))}\\",
-        f"\\textbf{{Analysis Reasoning}}: {format_value(cover.get('analysis_reasoning'))}\\",
-        "",
-        r"\section*{Overall Assessment}",
-        f"\\textbf{{Summary}}: {format_value(overall.get('summary'))}\\",
-        f"\\textbf{{Recommendations}}: {format_value(overall.get('recommendations'))}\\",
-        f"\\textbf{{Analysis Limitations}}: {format_value(overall.get('analysis_limitations'))}\\",
-        "",
-        r"\section*{Image Analysis Metadata}",
-        f"\\textbf{{Image Quality}}: {format_value(metadata.get('image_quality'))}\\",
-        f"\\textbf{{Viewing Angle}}: {format_value(metadata.get('viewing_angle'))}\\",
-        f"\\textbf{{Resolution Adequacy}}: {format_value(metadata.get('resolution_adequacy'))}\\",
-        f"\\textbf{{Weather Conditions}}: {format_value(metadata.get('weather_conditions'))}\\",
     ]
 
-    sections_content = "\n".join(sections)
+    lines.extend(
+        [
+            r"\begin{center}",
+            r"{\Large\textbf{Roof Analysis Report}}\par",
+            r"\vspace{0.5em}",
+            f"Generated: {latex_escape(report_timestamp)}",
+            r"\end{center}",
+            "",
+        ]
+    )
 
-    return f"""\\documentclass[11pt]{{article}}
-\\usepackage{{geometry}}
-\\usepackage{{graphicx}}
-\\usepackage{{float}}
-\\usepackage{{enumitem}}
-\\geometry{{margin=1in}}
-\\setlist[itemize]{{itemsep=0pt, parsep=2pt, topsep=4pt}}
-\\title{{Roof Analysis Report}}
-\\date{{{latex_escape(report_timestamp)}}}
-\\begin{{document}}
-\\maketitle
+    lines.append(r"\section*{Job Overview}")
+    lines.extend(
+        render_detail_list_lines(
+            [
+                ("Job ID", job_id),
+                ("Model ID", model_id),
+                ("Report generated", report_timestamp),
+            ]
+        )
+    )
+    lines.append("")
 
-{sections_content}
+    lines.append(r"\section*{Inspection Image}")
+    lines.extend(
+        [
+            r"\begin{figure}[H]",
+            r"  \centering",
+            f"  \\includegraphics[width=0.88\\textwidth]{{{image_filename}}}",
+            r"  \caption{Roof area analyzed by the AI model.}",
+            r"\end{figure}",
+            "",
+        ]
+    )
 
-\\end{{document}}
-"""
+    lines.append(r"\section*{Executive Summary}")
+    lines.extend(render_text_section_lines("Overall condition", overall.get("summary")))
+    lines.extend(render_plain_list_section_lines("Recommended next steps", overall.get("recommendations")))
+    lines.extend(render_plain_list_section_lines("Assessment limitations", overall.get("analysis_limitations")))
+    lines.append("")
 
+    lines.append(r"\section*{Roof Condition}")
+    lines.extend(
+        render_detail_section_lines(
+            "Quality Assessment",
+            [
+                ("Overall rating", quality.get("overall_rating")),
+                ("Condition score", quality.get("condition_score")),
+            ],
+        )
+    )
+    lines.extend(render_plain_list_section_lines("Visible issues", quality.get("visible_issues")))
+    lines.extend(render_plain_list_section_lines("Positive indicators", quality.get("quality_indicators")))
+    lines.extend(render_text_section_lines("Analyst notes", quality.get("analysis_reasoning")))
+    lines.extend(
+        render_detail_section_lines(
+            "Estimated Age",
+            [
+                ("Estimated age", age.get("estimated_age_years")),
+                ("Age category", age.get("age_category")),
+            ],
+        )
+    )
+    lines.extend(render_plain_list_section_lines("Weathering indicators", age.get("weathering_indicators")))
+    lines.extend(render_text_section_lines("Age notes", age.get("analysis_reasoning")))
+    lines.extend(
+        render_detail_section_lines(
+            "Roof Geometry",
+            [
+                ("Primary shape", shape.get("primary_shape")),
+                ("Complexity", shape.get("complexity")),
+                ("Number of planes", shape.get("roof_planes")),
+                ("Pitch estimate", shape.get("pitch_estimate")),
+            ],
+        )
+    )
+    lines.extend(render_plain_list_section_lines("Architectural features", shape.get("architectural_features")))
+    lines.extend(render_text_section_lines("Geometry notes", shape.get("analysis_reasoning")))
+    lines.extend(
+        render_detail_section_lines(
+            "Cover Material",
+            [
+                ("Material type", cover.get("material_type")),
+                ("Confidence", cover.get("material_confidence")),
+                ("Color", cover.get("color_description")),
+                ("Texture", cover.get("texture_pattern")),
+            ],
+        )
+    )
+    lines.extend(render_plain_list_section_lines("Secondary materials", cover.get("secondary_materials")))
+    lines.extend(render_text_section_lines("Cover notes", cover.get("analysis_reasoning")))
+    lines.append("")
 
-def wait_for_path(path: str, *, timeout: float = 10.0, interval: float = 0.25) -> bool:
-    """Poll until the given path exists or the timeout elapses."""
+    lines.append(r"\section*{Image \& Analysis Metadata}")
+    lines.extend(
+        render_detail_list_lines(
+            [
+                ("Image quality", metadata.get("image_quality")),
+                ("Viewing angle", metadata.get("viewing_angle")),
+                ("Resolution adequacy", metadata.get("resolution_adequacy")),
+                ("Weather conditions", metadata.get("weather_conditions")),
+            ]
+        )
+    )
+
+    lines.append(r"\end{document}")
+
+    return "\n".join(lines)
+
+def wait_for_path(path: str, *, timeout: float = 10.0, interval: float = 0.1) -> bool:
+    """Poll until the given filesystem path exists or the timeout elapses."""
     deadline = time.time() + timeout
     while time.time() < deadline:
         if os.path.exists(path):
@@ -307,6 +408,53 @@ def update_progress(
     print(
         f"[ROOF] Job {job_id}: status={status} stage={stage} progress={progress} message='{message}'"
     )
+
+
+def _capture_latex_debug(tmpdir: str, latex_path: str, job_id: str) -> list[str]:
+    """Persist LaTeX artifacts to the shared volume for post-mortem debugging."""
+
+    debug_dir = "/my-volume/roof-analysis-results/debug"
+    os.makedirs(debug_dir, exist_ok=True)
+    timestamp = datetime.utcnow().strftime("%Y-%m-%d_%H-%M-%S")
+    debug_base = f"{timestamp}_{job_id}"
+
+    notes: list[str] = []
+
+    latex_target = os.path.join(debug_dir, f"{debug_base}.tex")
+    try:
+        shutil.copy(latex_path, latex_target)
+        notes.append(f"LaTeX source saved to {latex_target}")
+    except Exception as exc:  # noqa: BLE001 - best effort only
+        notes.append(f"Failed to copy LaTeX source: {exc}")
+
+    log_source = os.path.join(tmpdir, "roof_analysis.log")
+    if os.path.exists(log_source):
+        log_target = os.path.join(debug_dir, f"{debug_base}.log")
+        try:
+            shutil.copy(log_source, log_target)
+            notes.append(f"pdflatex log saved to {log_target}")
+        except Exception as exc:  # noqa: BLE001
+            notes.append(f"Failed to copy pdflatex log: {exc}")
+    else:
+        notes.append("pdflatex log not found")
+
+    return notes
+
+
+def _log_latex_source(job_id: str, latex_content: str, latex_path: str) -> None:
+    """Log LaTeX source prior to compilation to aid debugging."""
+    max_chars = 8000
+    truncated = len(latex_content) > max_chars
+    preview = latex_content[:max_chars]
+    suffix = " [truncated]" if truncated else ""
+    print(
+        f"[ROOF] Job {job_id}: LaTeX source (saved at {latex_path}){suffix}\n{preview}"
+    )
+    if truncated:
+        print(
+            f"[ROOF] Job {job_id}: LaTeX source truncated to first {max_chars} characters for logging"
+        )
+
 
 def generate_roof_report(
     job_id: str,
@@ -346,15 +494,53 @@ def generate_roof_report(
             with open(latex_path, "w", encoding="utf-8") as latex_file:
                 latex_file.write(latex_content)
 
+            _log_latex_source(job_id, latex_content, latex_path)
+
             pdflatex_command = ["pdflatex", "-interaction=nonstopmode", latex_filename]
-            for _ in range(2):
-                subprocess.run(
-                    pdflatex_command,
-                    cwd=tmpdir,
-                    check=True,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                )
+
+            try:
+                for _ in range(2):
+                    subprocess.run(
+                        pdflatex_command,
+                        cwd=tmpdir,
+                        check=True,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                    )
+            except subprocess.CalledProcessError as exc:
+                _capture_latex_debug(tmpdir, latex_path, job_id)
+
+                error_output = ""
+                if exc.stderr:
+                    error_output = exc.stderr.decode("utf-8", errors="replace")
+                elif exc.stdout:
+                    error_output = exc.stdout.decode("utf-8", errors="replace")
+
+                full_output = (error_output or "").strip()
+                if full_output:
+                    tail = full_output[-8000:]
+                    prefix_note = "(truncated; showing last 8k chars)\n" if len(full_output) > 8000 else ""
+                    print(
+                        f"[ROOF] Job {job_id}: pdflatex output {prefix_note}{tail}"
+                    )
+
+                log_path = os.path.join(tmpdir, "roof_analysis.log")
+                if os.path.exists(log_path):
+                    try:
+                        with open(log_path, "r", encoding="utf-8", errors="replace") as log_file:
+                            log_tail = log_file.read()[-8000:]
+                        print(
+                            f"[ROOF] Job {job_id}: pdflatex log tail\n{log_tail}"
+                        )
+                    except Exception as log_exc:  # noqa: BLE001 - best effort
+                        print(
+                            f"[ROOF] Job {job_id}: failed to read pdflatex log ({log_exc})"
+                        )
+
+                raise ReportGenerationError(
+                    "Report generation failed during LaTeX compilation",
+                    error=error_output or str(exc),
+                ) from exc
 
             pdf_source = os.path.join(tmpdir, "roof_analysis.pdf")
             if not os.path.exists(pdf_source):
@@ -367,17 +553,8 @@ def generate_roof_report(
             )
             report_path = os.path.join(reports_dir, f"{report_basename}.pdf")
             shutil.move(pdf_source, report_path)
-
-    except subprocess.CalledProcessError as exc:
-        error_output = ""
-        if exc.stderr:
-            error_output = exc.stderr.decode("utf-8", errors="replace")
-        elif exc.stdout:
-            error_output = exc.stdout.decode("utf-8", errors="replace")
-        raise ReportGenerationError(
-            "Report generation failed during LaTeX compilation",
-            error=error_output or str(exc),
-        ) from exc
+    except ReportGenerationError:
+        raise
     except Exception as exc:  # noqa: BLE001 - bubble up rich error detail
         raise ReportGenerationError(str(exc)) from exc
 
