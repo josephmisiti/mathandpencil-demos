@@ -10,11 +10,15 @@ export type LatLngLiteral = {
   lng: number;
 };
 
+import { RefObject } from "react";
+
 export type MapProps = {
   center: Location;
   markers: Location[];
   zoom?: number;
   onViewChange?: (view: { center: LatLngLiteral; zoom: number }) => void;
+  onRoofAnalysisModeChange?: (active: boolean) => void;
+  roofAnalysisPanelRef?: RefObject<HTMLDivElement | null>;
 }
 
 export type MarkerInfoProps = {
@@ -26,4 +30,5 @@ export type AddressSearchProps = {
   onLocationSelect: (location: Location) => void;
   onAddressClear?: () => void;
   initialAddress?: string;
+  hidePdfUpload?: boolean;
 }
