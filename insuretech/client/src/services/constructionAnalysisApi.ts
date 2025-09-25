@@ -137,6 +137,8 @@ export interface ConstructionAnalysisResult {
     report_absolute_path?: string;
   };
   report_generated_at?: string;
+  report_status?: "pending" | "available" | "failed" | "disabled";
+  report_error?: string;
 }
 
 export interface ConstructionProgressResponse {

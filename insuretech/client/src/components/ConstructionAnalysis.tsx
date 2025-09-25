@@ -531,6 +531,11 @@ const ConstructionAnalysis: React.FC<ConstructionAnalysisProps> = ({
   );
 
   const buildingAnalysis = jobState.result?.analysis?.building_analysis;
+  const reportStatus = jobState.result?.report_status;
+  const reportError = jobState.result?.report_error;
+  const showErrorBanner = Boolean(jobState.error && jobState.phase !== "completed");
+  const showReportWarning = reportStatus === "failed";
+  const showReportDisabled = reportStatus === "disabled";
 
   useEffect(() => {
     if (overlayActive && !isStreetViewVisible) {
@@ -650,7 +655,7 @@ const ConstructionAnalysis: React.FC<ConstructionAnalysisProps> = ({
         </div>
       )}
 
-      {jobState.error && (
+      {showErrorBanner && (
         <div className="mt-3 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
           {jobState.error}
         </div>
@@ -676,6 +681,23 @@ const ConstructionAnalysis: React.FC<ConstructionAnalysisProps> = ({
               </div>
             )}
           </div>
+
+          {showReportWarning && (
+            <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
+              PDF report could not be generated. The on-screen analysis below remains available.
+              {(reportError || jobState.error) && (
+                <div className="mt-1 text-xs">
+                  Details: {reportError || jobState.error}
+                </div>
+              )}
+            </div>
+          )}
+
+          {showReportDisabled && (
+            <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
+              PDF report generation is currently disabled. Review the analysis below.
+            </div>
+          )}
 
           {jobState.result?.artifacts && (
             <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">

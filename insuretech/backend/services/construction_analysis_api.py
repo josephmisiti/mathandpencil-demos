@@ -896,6 +896,7 @@ def process_building_analysis(image_data: str, job_id: str):
                 "image_path": image_path,
                 "analysis_path": output_path,
             },
+            "report_status": "disabled",
         }
 
         update_progress(
@@ -903,54 +904,16 @@ def process_building_analysis(image_data: str, job_id: str):
             status="processing",
             stage="analysis_complete",
             progress=75,
-            message="Building analysis completed, preparing report",
+            message="Building analysis completed; PDF report generation disabled",
             result=result_payload,
         )
-
-        update_progress(
-            job_id,
-            status="processing",
-            stage="report_generation",
-            progress=85,
-            message="Generating building analysis report",
-            result=result_payload,
-        )
-
-        try:
-            report_path, report_timestamp = generate_building_report(
-                job_id,
-                MODEL_ID,
-                image_path,
-                output_path,
-            )
-        except ReportGenerationError as exc:
-            update_progress(
-                job_id,
-                status="failed",
-                stage="report_generation_error",
-                progress=90,
-                message=str(exc) or "Report generation failed",
-                error=exc.error or str(exc),
-            )
-            raise
-
-        artifacts = result_payload.setdefault("artifacts", {})
-
-        reports_dir = "/my-volume/construction-analysis-results/reports"
-        relative_report = report_path
-        if report_path.startswith(reports_dir):
-            relative_report = os.path.relpath(report_path, reports_dir)
-
-        artifacts["report_path"] = relative_report
-        artifacts["report_absolute_path"] = report_path
-        result_payload["report_generated_at"] = report_timestamp
 
         update_progress(
             job_id,
             status="completed",
             stage="finished",
             progress=100,
-            message="Building analysis report generated",
+            message="Building analysis completed; PDF report generation disabled",
             result=result_payload,
         )
 
