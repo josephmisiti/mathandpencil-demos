@@ -10,9 +10,12 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@loaders.gl/mvt": "^4.1.0",
+    "@types/fabric": "^5.3.10",
     "@vis.gl/react-google-maps": "^1.0.0",
     "deck.gl": "^9.1.4",
-    "@loaders.gl/mvt": "^4.1.0",
+    "fabric": "^6.7.1",
+    "html2canvas": "^1.4.1",
     "lodash": "^4.17.21",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Map, Marker, InfoWindow, useMap } from "@vis.gl/react-google-maps";
+import { Map, Marker, InfoWindow } from "@vis.gl/react-google-maps";
 import { MapProps, Location } from "../types/location";
 import MarkerInfo from "./MarkerInfo";
 import MapControls from "./MapControls";
@@ -216,6 +216,11 @@ export default function MapView({
           console.log("Closing context menu");
           setContextMenu(null);
         }
+
+        if (roofAnalysisMode) {
+          console.log("Canceling roof analysis mode");
+          setRoofAnalysisMode(false);
+        }
       }
     };
 
@@ -223,7 +228,7 @@ export default function MapView({
     return () => {
       document.removeEventListener("keydown", handler);
     };
-  }, [measureMode, distanceMode, contextMenu, polygonArea, distance]);
+  }, [measureMode, distanceMode, contextMenu, polygonArea, distance, roofAnalysisMode]);
 
   // Only cleanup polygon data when explicitly requested via ESC or Clear button
   // Don't auto-clear when measureMode becomes false, as we want to show the completed polygon
@@ -244,8 +249,7 @@ export default function MapView({
         }
         highResLoading={status === "loading"}
         highResError={highResErrorMessage}
-        roofAnalysisEnabled={roofAnalysisMode}
-        onRoofAnalysisToggle={setRoofAnalysisMode}
+
       />
       <Map
         zoom={mapZoom}
@@ -371,19 +375,17 @@ export default function MapView({
         />
 
         {/* Render measurement polygon using custom component */}
-        <MeasurementPolygon points={polygonPoints} area={polygonArea} />
+        <MeasurementPolygon points={polygonPoints} area={polygonArea ?? undefined} />
 
         {/* Render distance measurement using custom component */}
         <DistanceMeasurement
           points={distancePoints}
-          distance={distance}
+          distance={distance ?? undefined}
           onClear={() => {
             setDistance(null);
             setDistancePoints([]);
           }}
         />
-
-        {roofAnalysisMode && <RoofAnalysis drawingMode={roofAnalysisMode} />}
 
         {markers.map((marker) => (
           <Marker
@@ -405,6 +407,13 @@ export default function MapView({
           </InfoWindow>
         )}
       </Map>
+      {roofAnalysisMode && (
+        <RoofAnalysis
+          active={roofAnalysisMode}
+          mapContainerRef={mapContainerRef}
+          onExit={() => setRoofAnalysisMode(false)}
+        />
+      )}
       {(() => {
         const sloshVisible = SLOSH_CATEGORIES.some((category) => sloshEnabled[category]);
         const showAnyLegend = floodZoneEnabled || sloshVisible;
