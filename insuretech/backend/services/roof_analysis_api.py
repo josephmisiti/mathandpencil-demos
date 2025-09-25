@@ -1,10 +1,12 @@
 import json
 import modal
 import os
-from fastapi import FastAPI, HTTPException, Depends
-from fastapi.responses import JSONResponse
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+import time
+import uuid
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 
 # Modal app setup
@@ -27,6 +29,7 @@ class SaveImageRequest(BaseModel):
     image_data: str
 
 volume = modal.Volume.from_name("insuretech-demos")
+progress_store = modal.Dict.from_name("roof-analysis-progress-store")
 
 MODEL_ID = "us.anthropic.claude-3-5-sonnet-20241022-v2:0"
 
@@ -118,123 +121,243 @@ IMPORTANT GUIDELINES:
 """
 
 
+def update_progress(
+    job_id: str,
+    status: str,
+    stage: str,
+    progress: int,
+    message: str,
+    *,
+    result: dict | None = None,
+    error: str | None = None,
+) -> None:
+    payload = {
+        "job_id": job_id,
+        "status": status,
+        "stage": stage,
+        "progress": progress,
+        "message": message,
+        "timestamp": time.time(),
+    }
+    if result is not None:
+        payload["result"] = result
+    if error is not None:
+        payload["error"] = error
+
+    progress_store[job_id] = payload
+    print(
+        f"[ROOF] Job {job_id}: status={status} stage={stage} progress={progress} message='{message}'"
+    )
+
+
 @app.function(
     image=image,
     secrets=[aws_secret],
     volumes={"/my-volume": volume},
     timeout=300
 )
-def analyze_roof_image(image_data: str):
+def process_roof_analysis(image_data: str, job_id: str):
     import base64
     from datetime import datetime
     import boto3
 
-    if not image_data:
-        raise ValueError("No image data provided")
-
-    # Handle data URLs and raw base64 payloads
-    media_type = "image/png"
-    file_extension = "png"
-
-    if "," in image_data:
-        header, base64_payload = image_data.split(",", 1)
-        if header.startswith("data:") and ";base64" in header:
-            media_type = header.split(":", 1)[1].split(";", 1)[0] or media_type
-            if "/" in media_type:
-                file_extension = media_type.split("/", 1)[1] or file_extension
-    else:
-        base64_payload = image_data
-
-    file_extension = (file_extension or "png").replace("+", "_")
-
     try:
-        image_bytes = base64.b64decode(base64_payload)
-    except Exception as exc:
-        raise ValueError(f"Invalid base64 image data: {exc}")
+        if not image_data:
+            raise ValueError("No image data provided")
 
-    # Persist the image for traceability
-    timestamp = datetime.utcnow().strftime("%Y-%m-%d_%H-%M-%S")
-    input_dir = "/my-volume/roof-analysis-results/inputs"
-    os.makedirs(input_dir, exist_ok=True)
-    image_path = os.path.join(input_dir, f"{timestamp}.{file_extension}")
-    with open(image_path, "wb") as image_file:
-        image_file.write(image_bytes)
+        # Handle data URLs and raw base64 payloads
+        media_type = "image/png"
+        file_extension = "png"
 
-    # Prepare Bedrock client
-    bedrock_client = boto3.client(
-        "bedrock-runtime",
-        aws_access_key_id=os.environ.get("AWS_ACCESS_KEY_ID"),
-        aws_secret_access_key=os.environ.get("AWS_SECRET_ACCESS_KEY"),
-        region_name=os.environ.get("AWS_DEFAULT_REGION", "us-east-1"),
-    )
+        update_progress(
+            job_id,
+            status="processing",
+            stage="received",
+            progress=5,
+            message="Image received, preparing for analysis"
+        )
 
-    request_body = json.dumps({
-        "anthropic_version": "bedrock-2023-05-31",
-        "max_tokens": 4000,
-        "temperature": 0.2,
-        "messages": [
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": media_type,
-                            "data": base64_payload,
+        if "," in image_data:
+            header, base64_payload = image_data.split(",", 1)
+            if header.startswith("data:") and ";base64" in header:
+                media_type = header.split(":", 1)[1].split(";", 1)[0] or media_type
+                if "/" in media_type:
+                    file_extension = media_type.split("/", 1)[1] or file_extension
+        else:
+            base64_payload = image_data
+
+        file_extension = (file_extension or "png").replace("+", "_")
+
+        try:
+            image_bytes = base64.b64decode(base64_payload)
+        except Exception as exc:
+            update_progress(
+                job_id,
+                status="failed",
+                stage="decode_error",
+                progress=0,
+                message="Failed to decode image data",
+                error=str(exc),
+            )
+            raise ValueError(f"Invalid base64 image data: {exc}") from exc
+
+        # Persist the image for traceability
+        timestamp = datetime.utcnow().strftime("%Y-%m-%d_%H-%M-%S")
+        input_dir = "/my-volume/roof-analysis-results/inputs"
+        os.makedirs(input_dir, exist_ok=True)
+        image_path = os.path.join(input_dir, f"{timestamp}.{file_extension}")
+        with open(image_path, "wb") as image_file:
+            image_file.write(image_bytes)
+
+        update_progress(
+            job_id,
+            status="processing",
+            stage="image_saved",
+            progress=20,
+            message="Image saved to analysis volume"
+        )
+
+        # Prepare Bedrock client
+        bedrock_client = boto3.client(
+            "bedrock-runtime",
+            aws_access_key_id=os.environ.get("AWS_ACCESS_KEY_ID"),
+            aws_secret_access_key=os.environ.get("AWS_SECRET_ACCESS_KEY"),
+            region_name=os.environ.get("AWS_DEFAULT_REGION", "us-east-1"),
+        )
+
+        update_progress(
+            job_id,
+            status="processing",
+            stage="invoking_model",
+            progress=45,
+            message="Sending roof image to Bedrock model"
+        )
+
+        request_body = json.dumps({
+            "anthropic_version": "bedrock-2023-05-31",
+            "max_tokens": 4000,
+            "temperature": 0.2,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": media_type,
+                                "data": base64_payload,
+                            },
                         },
-                    },
-                    {
-                        "type": "text",
-                        "text": ROOF_ANALYSIS_PROMPT,
-                    },
-                ],
-            }
-        ],
-    })
+                        {
+                            "type": "text",
+                            "text": ROOF_ANALYSIS_PROMPT,
+                        },
+                    ],
+                }
+            ],
+        })
 
-    response = bedrock_client.invoke_model(
-        body=request_body,
-        modelId=MODEL_ID,
-        accept="application/json",
-        contentType="application/json",
-    )
+        response = bedrock_client.invoke_model(
+            body=request_body,
+            modelId=MODEL_ID,
+            accept="application/json",
+            contentType="application/json",
+        )
 
-    response_body = json.loads(response.get("body").read())
-    model_text = response_body.get("content", [{}])[0].get("text", "").strip()
+        response_body = json.loads(response.get("body").read())
+        model_text = response_body.get("content", [{}])[0].get("text", "").strip()
 
-    if not model_text:
-        raise RuntimeError("Bedrock returned an empty response")
+        if not model_text:
+            update_progress(
+                job_id,
+                status="failed",
+                stage="empty_response",
+                progress=60,
+                message="Bedrock returned an empty response",
+                error="Empty response",
+            )
+            raise RuntimeError("Bedrock returned an empty response")
 
-    cleaned_text = model_text
-    if cleaned_text.startswith("```json"):
-        cleaned_text = cleaned_text.replace("```json", "", 1)
-    if cleaned_text.startswith("```"):
-        cleaned_text = cleaned_text.replace("```", "", 1)
-    if cleaned_text.endswith("```"):
-        cleaned_text = cleaned_text[: -3]
-    cleaned_text = cleaned_text.strip()
+        update_progress(
+            job_id,
+            status="processing",
+            stage="parsing_response",
+            progress=65,
+            message="Parsing roof analysis response"
+        )
 
-    try:
-        parsed_response = json.loads(cleaned_text)
-    except json.JSONDecodeError as exc:
-        raise RuntimeError(f"Failed to parse model response as JSON: {exc}")
+        cleaned_text = model_text
+        if cleaned_text.startswith("```json"):
+            cleaned_text = cleaned_text.replace("```json", "", 1)
+        if cleaned_text.startswith("```"):
+            cleaned_text = cleaned_text.replace("```", "", 1)
+        if cleaned_text.endswith("```"):
+            cleaned_text = cleaned_text[: -3]
+        cleaned_text = cleaned_text.strip()
 
-    # Persist analysis output alongside the image
-    output_dir = "/my-volume/roof-analysis-results/outputs"
-    os.makedirs(output_dir, exist_ok=True)
-    output_path = os.path.join(output_dir, f"{timestamp}.json")
-    with open(output_path, "w", encoding="utf-8") as output_file:
-        json.dump(parsed_response, output_file, ensure_ascii=False, indent=2)
+        try:
+            parsed_response = json.loads(cleaned_text)
+        except json.JSONDecodeError as exc:
+            update_progress(
+                job_id,
+                status="failed",
+                stage="json_parse_error",
+                progress=70,
+                message="Failed to parse model response",
+                error=str(exc),
+            )
+            raise RuntimeError(f"Failed to parse model response as JSON: {exc}")
 
-    return {
-        "model_id": MODEL_ID,
-        "analysis": parsed_response,
-        "artifacts": {
-            "image_path": image_path,
-            "analysis_path": output_path,
-        },
-    }
+        # Persist analysis output alongside the image
+        output_dir = "/my-volume/roof-analysis-results/outputs"
+        os.makedirs(output_dir, exist_ok=True)
+        output_path = os.path.join(output_dir, f"{timestamp}.json")
+        with open(output_path, "w", encoding="utf-8") as output_file:
+            json.dump(parsed_response, output_file, ensure_ascii=False, indent=2)
+
+        result_payload = {
+            "model_id": MODEL_ID,
+            "analysis": parsed_response,
+            "artifacts": {
+                "image_path": image_path,
+                "analysis_path": output_path,
+            },
+        }
+
+        update_progress(
+            job_id,
+            status="completed",
+            stage="finished",
+            progress=100,
+            message="Roof analysis completed",
+            result=result_payload,
+        )
+
+        return result_payload
+
+    except Exception as exc:
+        if job_id in progress_store:
+            current = progress_store[job_id]
+            if current.get("status") != "failed":
+                update_progress(
+                    job_id,
+                    status="failed",
+                    stage="error",
+                    progress=current.get("progress", 0) or 0,
+                    message="Roof analysis failed",
+                    error=str(exc),
+                )
+        else:
+            update_progress(
+                job_id,
+                status="failed",
+                stage="error",
+                progress=0,
+                message="Roof analysis failed",
+                error=str(exc),
+            )
+        raise
 
 
 # Authentication setup
@@ -258,24 +381,42 @@ web_app = FastAPI(title="Roof Analysis API", version="1.0.0")
 
 web_app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://localhost:3000",
-        "https://demos.mathandpencil.com",
-    ],
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["*"],
+    allow_headers=["*"]
 )
 
 
 @web_app.post("/save-image")
 def save_image(request: SaveImageRequest, token: str = Depends(verify_token)):
-    try:
-        result = analyze_roof_image.remote(request.image_data)
-        return JSONResponse(content=result)
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Roof analysis failed: {exc}")
+    job_id = str(uuid.uuid4())
+
+    update_progress(
+        job_id,
+        status="queued",
+        stage="uploaded",
+        progress=5,
+        message="Image uploaded, queued for processing"
+    )
+
+    process_roof_analysis.spawn(request.image_data, job_id)
+
+    return JSONResponse(
+        content={
+            "job_id": job_id,
+            "status": "queued",
+            "message": "Image queued for roof analysis",
+        }
+    )
+
+
+@web_app.get("/progress/{job_id}")
+def get_progress(job_id: str, token: str = Depends(verify_token)):
+    if job_id not in progress_store:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    return JSONResponse(progress_store[job_id])
 
 
 # Deploy the web app
