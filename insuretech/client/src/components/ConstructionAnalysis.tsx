@@ -31,6 +31,7 @@ interface ConstructionAnalysisProps {
   panelContainerRef?: React.RefObject<HTMLDivElement | null>;
   onOverlayCancel?: () => void;
   onRequestDraw?: () => void;
+  isStreetViewVisible: boolean;
 }
 
 type JobPhase =
@@ -213,7 +214,8 @@ const ConstructionAnalysis: React.FC<ConstructionAnalysisProps> = ({
   onExit,
   panelContainerRef,
   onOverlayCancel,
-  onRequestDraw
+  onRequestDraw,
+  isStreetViewVisible
 }) => {
   const [selectedBounds, setSelectedBounds] = useState<Bounds | null>(null);
   const [jobState, setJobState] = useState<JobState>(initialJobState);
@@ -530,6 +532,12 @@ const ConstructionAnalysis: React.FC<ConstructionAnalysisProps> = ({
 
   const buildingAnalysis = jobState.result?.analysis?.building_analysis;
 
+  useEffect(() => {
+    if (overlayActive && !isStreetViewVisible) {
+      cancelDrawingOnly();
+    }
+  }, [overlayActive, isStreetViewVisible, cancelDrawingOnly]);
+
   const previousOverlayRef = useRef(overlayActive);
   useEffect(() => {
     if (previousOverlayRef.current && !overlayActive && jobState.phase === "capturing") {
@@ -541,6 +549,7 @@ const ConstructionAnalysis: React.FC<ConstructionAnalysisProps> = ({
   const drawingDisabled =
     !apiConfigured ||
     !hasToken ||
+    !isStreetViewVisible ||
     jobState.phase === "queued" ||
     jobState.phase === "processing";
 
@@ -594,6 +603,12 @@ const ConstructionAnalysis: React.FC<ConstructionAnalysisProps> = ({
       {apiConfigured && !hasToken && (
         <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
           Construction analysis API token is missing.
+        </div>
+      )}
+
+      {apiConfigured && hasToken && !isStreetViewVisible && (
+        <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
+          Enter Street View to draw a new bounding box.
         </div>
       )}
 
