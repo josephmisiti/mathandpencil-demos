@@ -49,6 +49,7 @@ export default function MapView({
   const mapZoomRef = useRef(mapZoom);
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapInstanceRef = useRef<google.maps.Map | null>(null);
+  const streetViewRef = useRef<google.maps.StreetViewPanorama | null>(null);
   const [contextMenu, setContextMenu] = useState<
     | null
     | {
@@ -88,15 +89,53 @@ export default function MapView({
     [onConstructionAnalysisVisibilityChange]
   );
 
-  const openRoofAnalysis = useCallback(() => {
-    if (!isSatelliteView) {
+  const sloshActive = useMemo(
+    () => SLOSH_CATEGORIES.some((category) => sloshEnabled[category]),
+    [sloshEnabled]
+  );
+  const overlaysActive = floodZoneEnabled || sloshActive;
+
+  const exitStreetView = useCallback(() => {
+    const streetView = streetViewRef.current;
+    if (streetView?.getVisible?.()) {
+      streetView.setVisible(false);
+    }
+  }, []);
+
+  const ensureSatelliteView = useCallback(() => {
+    const map = mapInstanceRef.current;
+    if (!map) {
       return;
     }
+
+    const currentType = map.getMapTypeId?.();
+    const isAlreadySatellite = currentType === "satellite" || currentType === "hybrid";
+    if (isAlreadySatellite) {
+      return;
+    }
+
+    map.setMapTypeId?.("satellite");
+    setMapTypeId("satellite");
+  }, [setMapTypeId]);
+
+  const openRoofAnalysis = useCallback(() => {
+    if (!isSatelliteView || overlaysActive) {
+      return;
+    }
+    exitStreetView();
+    ensureSatelliteView();
     updateRoofAnalysisVisibility(true);
     setRoofAnalysisOverlay(true);
     updateConstructionAnalysisVisibility(false);
     setConstructionAnalysisOverlay(false);
-  }, [isSatelliteView, updateRoofAnalysisVisibility, updateConstructionAnalysisVisibility]);
+  }, [
+    exitStreetView,
+    ensureSatelliteView,
+    isSatelliteView,
+    overlaysActive,
+    updateRoofAnalysisVisibility,
+    updateConstructionAnalysisVisibility
+  ]);
 
   const closeRoofAnalysis = useCallback(() => {
     setRoofAnalysisOverlay(false);
@@ -108,11 +147,18 @@ export default function MapView({
   }, []);
 
   const openConstructionAnalysis = useCallback(() => {
+    if (overlaysActive) {
+      return;
+    }
     updateConstructionAnalysisVisibility(true);
     setConstructionAnalysisOverlay(true);
     updateRoofAnalysisVisibility(false);
     setRoofAnalysisOverlay(false);
-  }, [updateConstructionAnalysisVisibility, updateRoofAnalysisVisibility]);
+  }, [
+    overlaysActive,
+    updateConstructionAnalysisVisibility,
+    updateRoofAnalysisVisibility
+  ]);
 
   const closeConstructionAnalysis = useCallback(() => {
     setConstructionAnalysisOverlay(false);
@@ -123,10 +169,67 @@ export default function MapView({
     setConstructionAnalysisOverlay(false);
   }, []);
 
+  const getLatLngLiteral = useCallback((value: google.maps.LatLngLiteral | google.maps.LatLng | null | undefined) => {
+    if (!value) return null;
+    if (typeof (value as google.maps.LatLngLiteral).lat === "number") {
+      return value as google.maps.LatLngLiteral;
+    }
+    const latLng = value as google.maps.LatLng;
+    return { lat: latLng.lat(), lng: latLng.lng() };
+  }, []);
+
+  const openContextMenu = useCallback(
+    (
+      latLngInput: google.maps.LatLngLiteral | google.maps.LatLng | null | undefined,
+      domEvent?: MouseEvent | PointerEvent
+    ) => {
+      const latLng = getLatLngLiteral(latLngInput);
+      if (!latLng) return;
+
+      if (!floodZoneEnabled && sloshActive) {
+        return;
+      }
+
+      if (domEvent) {
+        domEvent.preventDefault();
+        domEvent.stopPropagation();
+      }
+
+      const containerRect = mapContainerRef.current?.getBoundingClientRect();
+      const MENU_WIDTH = 180;
+      const MENU_HEIGHT = 60;
+
+      let position = { x: 0, y: 0 };
+      if (domEvent && containerRect) {
+        const rawX = domEvent.clientX - containerRect.left;
+        const rawY = domEvent.clientY - containerRect.top;
+        position = {
+          x: Math.max(
+            0,
+            Math.min(rawX, Math.max(containerRect.width - MENU_WIDTH, 0))
+          ),
+          y: Math.max(
+            0,
+            Math.min(rawY, Math.max(containerRect.height - MENU_HEIGHT, 0))
+          )
+        };
+      } else if (containerRect) {
+        position = {
+          x: Math.max(containerRect.width / 2 - MENU_WIDTH / 2, 0),
+          y: Math.max(containerRect.height / 2 - MENU_HEIGHT / 2, 0)
+        };
+      }
+
+      setContextMenu({ latLng, position });
+    },
+    [floodZoneEnabled, getLatLngLiteral, mapContainerRef, sloshActive]
+  );
+
   useEffect(() => {
     return () => {
       streetViewListenerRef.current?.remove();
       streetViewListenerRef.current = null;
+      streetViewRef.current = null;
     };
   }, []);
 
@@ -324,6 +427,7 @@ export default function MapView({
       setMapTypeId(nextType);
 
       const streetView = map.getStreetView?.();
+      streetViewRef.current = streetView ?? null;
       if (streetView) {
         setStreetViewVisible(streetView.getVisible());
         streetViewListenerRef.current?.remove();
@@ -333,6 +437,7 @@ export default function MapView({
           if (!visible) {
             stopConstructionAnalysisOverlay();
             updateConstructionAnalysisVisibility(false);
+            setContextMenu(null);
           } else {
             updateRoofAnalysisVisibility(false);
             setRoofAnalysisOverlay(false);
@@ -386,6 +491,13 @@ export default function MapView({
         mapTypeId={mapTypeId}
         onMapTypeChange={handleMapTypeChange}
         isSatelliteView={isSatelliteView}
+        overlaysActive={overlaysActive}
+        onRoofAnalysis={openRoofAnalysis}
+        onConstructionAnalysis={openConstructionAnalysis}
+        roofAnalysisActive={roofAnalysisVisible || roofAnalysisOverlay}
+        constructionAnalysisActive={
+          constructionAnalysisVisible || constructionAnalysisOverlay
+        }
         highResLoading={status === "loading"}
         highResError={highResErrorMessage}
 
@@ -466,45 +578,10 @@ export default function MapView({
           }
         }}
         onContextmenu={(event) => {
-          // Show context menu if flood zone is enabled OR no layers are enabled
-          const noLayersEnabled = !floodZoneEnabled && !SLOSH_CATEGORIES.some(category => sloshEnabled[category]);
-          if (!floodZoneEnabled && !noLayersEnabled) return;
-
           const clickedLatLng = event.detail.latLng;
           if (!clickedLatLng) return;
 
-          const domEvent = event.domEvent as MouseEvent | undefined;
-          if (domEvent) {
-            domEvent.preventDefault();
-            domEvent.stopPropagation();
-          }
-
-          const containerRect = mapContainerRef.current?.getBoundingClientRect();
-          const MENU_WIDTH = 180;
-          const MENU_HEIGHT = 60;
-
-          let position = { x: 0, y: 0 };
-          if (domEvent && containerRect) {
-            const rawX = domEvent.clientX - containerRect.left;
-            const rawY = domEvent.clientY - containerRect.top;
-            position = {
-              x: Math.max(
-                0,
-                Math.min(rawX, Math.max(containerRect.width - MENU_WIDTH, 0))
-              ),
-              y: Math.max(
-                0,
-                Math.min(rawY, Math.max(containerRect.height - MENU_HEIGHT, 0))
-              )
-            };
-          } else if (containerRect) {
-            position = {
-              x: Math.max(containerRect.width / 2 - MENU_WIDTH / 2, 0),
-              y: Math.max(containerRect.height / 2 - MENU_HEIGHT / 2, 0)
-            };
-          }
-
-          setContextMenu({ latLng: clickedLatLng, position });
+          openContextMenu(clickedLatLng, event.domEvent as MouseEvent | PointerEvent | undefined);
         }}
       >
         <EagleViewOverlay enabled={!!overlayImagery} imagery={overlayImagery} />
@@ -567,10 +644,11 @@ export default function MapView({
           onOverlayCancel={stopConstructionAnalysisOverlay}
           onRequestDraw={openConstructionAnalysis}
           panelContainerRef={constructionAnalysisPanelRef}
+          isStreetViewVisible={streetViewVisible}
         />
       )}
       {(() => {
-        const sloshVisible = SLOSH_CATEGORIES.some((category) => sloshEnabled[category]);
+        const sloshVisible = sloshActive;
         const showAnyLegend = floodZoneEnabled || sloshVisible;
 
         if (!showAnyLegend) {
