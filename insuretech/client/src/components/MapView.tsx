@@ -12,6 +12,7 @@ import SloshLegend from "./SloshLegend";
 import MeasurementPolygon from "./MeasurementPolygon";
 import DistanceMeasurement from "./DistanceMeasurement";
 import RoofAnalysis from "./RoofAnalysis";
+import ConstructionAnalysis from "./ConstructionAnalysis";
 import { SLOSH_CATEGORIES, SloshCategory } from "../constants/slosh";
 
 export default function MapView({
@@ -20,7 +21,9 @@ export default function MapView({
   zoom = 12,
   onViewChange,
   onRoofAnalysisVisibilityChange,
-  roofAnalysisPanelRef
+  roofAnalysisPanelRef,
+  onConstructionAnalysisVisibilityChange,
+  constructionAnalysisPanelRef
 }: MapProps) {
   const [selectedMarker, setSelectedMarker] = useState<Location | null>(null);
   const [highResEnabled, setHighResEnabled] = useState(false);
@@ -61,7 +64,11 @@ export default function MapView({
   const [distance, setDistance] = useState<number | null>(null);
   const [roofAnalysisVisible, setRoofAnalysisVisible] = useState(false);
   const [roofAnalysisOverlay, setRoofAnalysisOverlay] = useState(false);
+  const [constructionAnalysisVisible, setConstructionAnalysisVisible] = useState(false);
+  const [constructionAnalysisOverlay, setConstructionAnalysisOverlay] = useState(false);
   const [mapTypeId, setMapTypeId] = useState<string>("roadmap");
+  const [streetViewVisible, setStreetViewVisible] = useState(false);
+  const streetViewListenerRef = useRef<google.maps.MapsEventListener | null>(null);
 
   const isSatelliteView = mapTypeId === "satellite" || mapTypeId === "hybrid";
 
@@ -73,13 +80,23 @@ export default function MapView({
     [onRoofAnalysisVisibilityChange]
   );
 
+  const updateConstructionAnalysisVisibility = useCallback(
+    (visible: boolean) => {
+      setConstructionAnalysisVisible(visible);
+      onConstructionAnalysisVisibilityChange?.(visible);
+    },
+    [onConstructionAnalysisVisibilityChange]
+  );
+
   const openRoofAnalysis = useCallback(() => {
     if (!isSatelliteView) {
       return;
     }
     updateRoofAnalysisVisibility(true);
     setRoofAnalysisOverlay(true);
-  }, [isSatelliteView, updateRoofAnalysisVisibility]);
+    updateConstructionAnalysisVisibility(false);
+    setConstructionAnalysisOverlay(false);
+  }, [isSatelliteView, updateRoofAnalysisVisibility, updateConstructionAnalysisVisibility]);
 
   const closeRoofAnalysis = useCallback(() => {
     setRoofAnalysisOverlay(false);
@@ -88,6 +105,29 @@ export default function MapView({
 
   const stopRoofAnalysisOverlay = useCallback(() => {
     setRoofAnalysisOverlay(false);
+  }, []);
+
+  const openConstructionAnalysis = useCallback(() => {
+    updateConstructionAnalysisVisibility(true);
+    setConstructionAnalysisOverlay(true);
+    updateRoofAnalysisVisibility(false);
+    setRoofAnalysisOverlay(false);
+  }, [updateConstructionAnalysisVisibility, updateRoofAnalysisVisibility]);
+
+  const closeConstructionAnalysis = useCallback(() => {
+    setConstructionAnalysisOverlay(false);
+    updateConstructionAnalysisVisibility(false);
+  }, [updateConstructionAnalysisVisibility]);
+
+  const stopConstructionAnalysisOverlay = useCallback(() => {
+    setConstructionAnalysisOverlay(false);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      streetViewListenerRef.current?.remove();
+      streetViewListenerRef.current = null;
+    };
   }, []);
 
   const { imagery, status, error } = useEagleViewImagery(
@@ -255,6 +295,12 @@ export default function MapView({
           event.stopPropagation();
           stopRoofAnalysisOverlay();
         }
+        if (constructionAnalysisOverlay) {
+          console.log("Stopping construction analysis overlay");
+          event.preventDefault();
+          event.stopPropagation();
+          stopConstructionAnalysisOverlay();
+        }
       }
     };
 
@@ -262,7 +308,7 @@ export default function MapView({
     return () => {
       document.removeEventListener("keydown", handler);
     };
-  }, [measureMode, distanceMode, contextMenu, polygonArea, distance, roofAnalysisOverlay, stopRoofAnalysisOverlay]);
+  }, [measureMode, distanceMode, contextMenu, polygonArea, distance, roofAnalysisOverlay, constructionAnalysisOverlay, stopRoofAnalysisOverlay, stopConstructionAnalysisOverlay]);
 
   // Only cleanup polygon data when explicitly requested via ESC or Clear button
   // Don't auto-clear when measureMode becomes false, as we want to show the completed polygon
@@ -270,16 +316,41 @@ export default function MapView({
   // Only cleanup distance data when explicitly requested via ESC or Clear button
   // Don't auto-clear when distanceMode becomes false, as we want to show the result
 
-  const syncMapTypeId = useCallback((map: google.maps.Map | undefined) => {
-    if (!map) return;
-    mapInstanceRef.current = map;
-    const nextType = map.getMapTypeId?.() ?? "roadmap";
-    setMapTypeId(nextType);
+  const syncMapTypeId = useCallback(
+    (map: google.maps.Map | undefined) => {
+      if (!map) return;
+      mapInstanceRef.current = map;
+      const nextType = map.getMapTypeId?.() ?? "roadmap";
+      setMapTypeId(nextType);
 
-    if (nextType !== "satellite" && nextType !== "hybrid") {
-      stopRoofAnalysisOverlay();
-    }
-  }, [stopRoofAnalysisOverlay]);
+      const streetView = map.getStreetView?.();
+      if (streetView) {
+        setStreetViewVisible(streetView.getVisible());
+        streetViewListenerRef.current?.remove();
+        streetViewListenerRef.current = streetView.addListener("visible_changed", () => {
+          const visible = streetView.getVisible();
+          setStreetViewVisible(visible);
+          if (!visible) {
+            stopConstructionAnalysisOverlay();
+            updateConstructionAnalysisVisibility(false);
+          } else {
+            updateRoofAnalysisVisibility(false);
+            setRoofAnalysisOverlay(false);
+          }
+        });
+      }
+
+      if (nextType !== "satellite" && nextType !== "hybrid") {
+        stopRoofAnalysisOverlay();
+      }
+    },
+    [
+      stopRoofAnalysisOverlay,
+      stopConstructionAnalysisOverlay,
+      updateConstructionAnalysisVisibility,
+      updateRoofAnalysisVisibility
+    ]
+  );
 
   const handleMapTypeIdChanged = useCallback((event: { map: google.maps.Map }) => {
     syncMapTypeId(event.map);
@@ -295,9 +366,10 @@ export default function MapView({
       setMapTypeId(nextType);
       if (nextType !== "satellite" && nextType !== "hybrid") {
         stopRoofAnalysisOverlay();
+        stopConstructionAnalysisOverlay();
       }
     },
-    [stopRoofAnalysisOverlay]
+    [stopRoofAnalysisOverlay, stopConstructionAnalysisOverlay]
   );
 
   return (
@@ -486,6 +558,17 @@ export default function MapView({
           isSatelliteView={isSatelliteView}
         />
       )}
+      {(constructionAnalysisVisible || constructionAnalysisOverlay) && (
+        <ConstructionAnalysis
+          overlayActive={constructionAnalysisOverlay}
+          visible={constructionAnalysisVisible}
+          mapContainerRef={mapContainerRef}
+          onExit={closeConstructionAnalysis}
+          onOverlayCancel={stopConstructionAnalysisOverlay}
+          onRequestDraw={openConstructionAnalysis}
+          panelContainerRef={constructionAnalysisPanelRef}
+        />
+      )}
       {(() => {
         const sloshVisible = SLOSH_CATEGORIES.some((category) => sloshEnabled[category]);
         const showAnyLegend = floodZoneEnabled || sloshVisible;
@@ -495,14 +578,14 @@ export default function MapView({
         }
 
         return (
-          <div className="absolute bottom-4 right-4 z-20 flex flex-col items-end gap-3">
+          <div className="pointer-events-none absolute bottom-4 right-4 z-20 flex flex-col items-end gap-3">
             {sloshVisible && (
               <SloshLegend
                 enabledCategories={sloshEnabled}
-                className="relative"
+                className="relative pointer-events-auto"
               />
             )}
-            {floodZoneEnabled && <FloodZoneLegend className="relative" />}
+            {floodZoneEnabled && <FloodZoneLegend className="relative pointer-events-auto" />}
           </div>
         );
       })()}
@@ -656,6 +739,15 @@ export default function MapView({
                     title={isSatelliteView ? undefined : "Switch to Satellite view to use roof analysis"}
                   >
                     🏠 Roof Analysis
+                  </button>
+                  <button
+                    className="block w-full px-4 py-2 text-left text-sm text-slate-600 hover:bg-slate-100"
+                    onClick={() => {
+                      openConstructionAnalysis();
+                      setContextMenu(null);
+                    }}
+                  >
+                    🏢 Construction Analysis
                   </button>
                   {!isSatelliteView && (
                     <div className="px-4 pb-1 pt-1 text-xs text-slate-400">
