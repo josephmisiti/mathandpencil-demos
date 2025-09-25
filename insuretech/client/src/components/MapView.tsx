@@ -397,11 +397,11 @@ export default function MapView({
         disableDefaultUI={true}
         zoomControl={true}
         zoomControlOptions={{
-          position: google.maps.ControlPosition.LEFT_CENTER
+          position: google.maps.ControlPosition.RIGHT_CENTER
         }}
         streetViewControl={true}
         streetViewControlOptions={{
-          position: google.maps.ControlPosition.LEFT_CENTER
+          position: google.maps.ControlPosition.RIGHT_CENTER
         }}
         mapTypeControl={false}
         mapTypeId={mapTypeId as google.maps.MapTypeId}
