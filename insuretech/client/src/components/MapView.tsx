@@ -11,6 +11,7 @@ import FloodZoneLegend from "./FloodZoneLegend";
 import SloshLegend from "./SloshLegend";
 import MeasurementPolygon from "./MeasurementPolygon";
 import DistanceMeasurement from "./DistanceMeasurement";
+import RoofAnalysis from "./RoofAnalysis";
 import { SLOSH_CATEGORIES, SloshCategory } from "../constants/slosh";
 
 export default function MapView({
@@ -55,6 +56,7 @@ export default function MapView({
   const [distanceMode, setDistanceMode] = useState(false);
   const [distancePoints, setDistancePoints] = useState<google.maps.LatLngLiteral[]>([]);
   const [distance, setDistance] = useState<number | null>(null);
+  const [roofAnalysisMode, setRoofAnalysisMode] = useState(false);
 
   const { imagery, status, error } = useEagleViewImagery(
     highResEnabled,
@@ -242,6 +244,8 @@ export default function MapView({
         }
         highResLoading={status === "loading"}
         highResError={highResErrorMessage}
+        roofAnalysisEnabled={roofAnalysisMode}
+        onRoofAnalysisToggle={setRoofAnalysisMode}
       />
       <Map
         zoom={mapZoom}
@@ -378,6 +382,8 @@ export default function MapView({
             setDistancePoints([]);
           }}
         />
+
+        {roofAnalysisMode && <RoofAnalysis drawingMode={roofAnalysisMode} />}
 
         {markers.map((marker) => (
           <Marker
@@ -555,6 +561,15 @@ export default function MapView({
                     }}
                   >
                     📏 Measure distance
+                  </button>
+                  <button
+                    className="block w-full px-4 py-2 text-left text-sm text-slate-600 hover:bg-slate-100"
+                    onClick={() => {
+                      setRoofAnalysisMode(true);
+                      setContextMenu(null);
+                    }}
+                  >
+                    🏠 Roof Analysis
                   </button>
                 </>
               )}
