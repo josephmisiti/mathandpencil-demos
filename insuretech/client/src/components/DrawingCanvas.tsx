@@ -11,11 +11,12 @@ interface DrawingCanvasProps {
   onDrawComplete: (bounds: Bounds) => void;
   disabled?: boolean;
   highlight?: Bounds | null;
+  onCancelDrawing?: () => void;
 }
 
 const MIN_SELECTION_SIZE = 10; // pixels
 
-const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onDrawComplete, disabled = false, highlight = null }) => {
+const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onDrawComplete, disabled = false, highlight = null, onCancelDrawing }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const isDrawingRef = useRef(false);
   const startPointRef = useRef<{ x: number; y: number } | null>(null);
@@ -70,6 +71,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onDrawComplete, disabled 
         drawBounds(highlight);
       } else {
         clearCanvas();
+        onCancelDrawing?.();
       }
     };
 
@@ -132,6 +134,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onDrawComplete, disabled 
 
       if (bounds.width < MIN_SELECTION_SIZE || bounds.height < MIN_SELECTION_SIZE) {
         clearCanvas();
+        onCancelDrawing?.();
       } else {
         drawBounds(bounds);
         onDrawComplete(bounds);
@@ -146,6 +149,7 @@ const DrawingCanvas: React.FC<DrawingCanvasProps> = ({ onDrawComplete, disabled 
       isDrawingRef.current = false;
       startPointRef.current = null;
       clearCanvas();
+      onCancelDrawing?.();
     };
 
     canvas.addEventListener('pointerdown', handlePointerDown);

@@ -19,7 +19,7 @@ function App() {
   const [markers, setMarkers] = useState<Location[]>([]);
   const [initialAddress, setInitialAddress] = useState("");
   const [mapZoom, setMapZoom] = useState<number>(DEFAULT_ZOOM);
-  const [isRoofAnalysisMode, setIsRoofAnalysisMode] = useState(false);
+  const [isRoofAnalysisActive, setIsRoofAnalysisActive] = useState(false);
   const roofPanelContainerRef = useRef<HTMLDivElement | null>(null);
 
   // Read URL parameters on mount
@@ -120,7 +120,7 @@ function App() {
           markers={markers}
           zoom={mapZoom}
           onViewChange={handleMapViewChange}
-          onRoofAnalysisModeChange={setIsRoofAnalysisMode}
+          onRoofAnalysisVisibilityChange={setIsRoofAnalysisActive}
           roofAnalysisPanelRef={roofPanelContainerRef}
         />
 
@@ -129,11 +129,11 @@ function App() {
             onLocationSelect={handleLocationSelect}
             onAddressClear={handleAddressClear}
             initialAddress={initialAddress}
-            hidePdfUpload={isRoofAnalysisMode}
+            hidePdfUpload={isRoofAnalysisActive}
           />
           <div
             ref={roofPanelContainerRef}
-            className={isRoofAnalysisMode ? "flex-1 min-h-0 overflow-y-auto pr-2" : "hidden"}
+            className={isRoofAnalysisActive ? "flex-1 min-h-0 overflow-y-auto pr-2" : "hidden"}
           />
         </div>
       </div>

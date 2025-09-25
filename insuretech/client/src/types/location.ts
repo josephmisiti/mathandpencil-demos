@@ -17,7 +17,7 @@ export type MapProps = {
   markers: Location[];
   zoom?: number;
   onViewChange?: (view: { center: LatLngLiteral; zoom: number }) => void;
-  onRoofAnalysisModeChange?: (active: boolean) => void;
+  onRoofAnalysisVisibilityChange?: (visible: boolean) => void;
   roofAnalysisPanelRef?: RefObject<HTMLDivElement | null>;
 }
 

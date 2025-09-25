@@ -23,10 +23,14 @@ interface Bounds {
 }
 
 interface RoofAnalysisProps {
-  active: boolean;
+  overlayActive: boolean;
+  visible: boolean;
   mapContainerRef: React.RefObject<HTMLDivElement | null>;
   onExit: () => void;
   panelContainerRef?: React.RefObject<HTMLDivElement | null>;
+  onOverlayCancel?: () => void;
+  onRequestDraw?: () => void;
+  isSatelliteView: boolean;
 }
 
 type JobPhase =
@@ -101,10 +105,14 @@ const renderBadgeList = (items?: string[]) => {
 };
 
 const RoofAnalysis: React.FC<RoofAnalysisProps> = ({
-  active,
+  overlayActive,
+  visible,
   mapContainerRef,
   onExit,
-  panelContainerRef
+  panelContainerRef,
+  onOverlayCancel,
+  onRequestDraw,
+  isSatelliteView
 }) => {
   const [selectedBounds, setSelectedBounds] = useState<Bounds | null>(null);
   const [jobState, setJobState] = useState<JobState>(initialJobState);
@@ -131,6 +139,21 @@ const RoofAnalysis: React.FC<RoofAnalysisProps> = ({
     setJobState(initialJobState);
     setSelectedBounds(null);
   }, [stopPolling]);
+
+  const cancelDrawingOnly = useCallback(() => {
+    stopPolling();
+    setJobState((prev) => ({
+      ...prev,
+      phase: prev.result ? "completed" : "idle",
+      progress: prev.result ? 100 : 0,
+      message: prev.result ? "Roof analysis ready" : "",
+      stage: prev.result ? prev.stage : null,
+      jobId: null,
+      error: null
+    }));
+    setSelectedBounds(null);
+    onOverlayCancel?.();
+  }, [stopPolling, onOverlayCancel]);
 
   useEffect(() => () => stopPolling(), [stopPolling]);
 
@@ -336,6 +359,7 @@ const RoofAnalysis: React.FC<RoofAnalysisProps> = ({
           lastUpdated: Date.now()
         }));
 
+        onOverlayCancel?.();
         startPolling(startResponse.job_id);
       } catch (error) {
         stopPolling();
@@ -360,14 +384,29 @@ const RoofAnalysis: React.FC<RoofAnalysisProps> = ({
   );
 
   const roofAnalysis = jobState.result?.analysis?.roof_analysis;
+
+  useEffect(() => {
+    if (overlayActive && !isSatelliteView) {
+      cancelDrawingOnly();
+    }
+  }, [overlayActive, isSatelliteView, cancelDrawingOnly]);
+
+  const previousOverlayRef = useRef(overlayActive);
+  useEffect(() => {
+    if (previousOverlayRef.current && !overlayActive && jobState.phase === "capturing") {
+      cancelDrawingOnly();
+    }
+    previousOverlayRef.current = overlayActive;
+  }, [overlayActive, cancelDrawingOnly, jobState.phase]);
+
   const drawingDisabled =
     !apiConfigured ||
     !hasToken ||
-    jobState.phase === "capturing" ||
+    !isSatelliteView ||
     jobState.phase === "queued" ||
     jobState.phase === "processing";
 
-  if (!active) {
+  if (!overlayActive && !visible) {
     return null;
   }
 
@@ -422,6 +461,12 @@ const RoofAnalysis: React.FC<RoofAnalysisProps> = ({
       {apiConfigured && !hasToken && (
         <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
           Roof analysis API token is missing.
+        </div>
+      )}
+
+      {apiConfigured && hasToken && !isSatelliteView && (
+        <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700">
+          Switch to Satellite view to draw a new bounding box.
         </div>
       )}
 
@@ -716,17 +761,17 @@ const RoofAnalysis: React.FC<RoofAnalysisProps> = ({
             Clear analysis
           </button>
         )}
-        {selectedBounds && jobState.phase !== "capturing" &&
-          jobState.phase !== "queued" &&
-          jobState.phase !== "processing" && (
-            <button
-              type="button"
-              className="rounded border border-slate-200 px-3 py-1 text-sm text-slate-700 hover:bg-slate-50"
-              onClick={resetAnalysis}
-            >
-              Draw again
-            </button>
-          )}
+        <button
+          type="button"
+          className="rounded border border-slate-200 px-3 py-1 text-sm text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
+          onClick={() => {
+            resetAnalysis();
+            onRequestDraw?.();
+          }}
+          disabled={!isSatelliteView}
+        >
+          {roofAnalysis ? "Draw again" : "Start drawing"}
+        </button>
       </div>
     </div>
   );
@@ -734,7 +779,7 @@ const RoofAnalysis: React.FC<RoofAnalysisProps> = ({
   let panelNode: React.ReactNode;
   if (panelContainerRef?.current) {
     panelNode = createPortal(
-      <div className="space-y-4">{panelBody}</div>,
+      <div className="space-y-4 max-h-full overflow-y-auto pr-1">{panelBody}</div>,
       panelContainerRef.current
     );
   } else {
@@ -747,13 +792,16 @@ const RoofAnalysis: React.FC<RoofAnalysisProps> = ({
 
   return (
     <>
-      <div className="absolute inset-0 z-30 flex flex-col" aria-live="polite">
-        <DrawingCanvas
-          onDrawComplete={handleDrawComplete}
-          disabled={drawingDisabled}
-          highlight={selectedBounds}
-        />
-      </div>
+      {overlayActive && (
+        <div className="absolute inset-0 z-30 flex flex-col" aria-live="polite">
+          <DrawingCanvas
+            onDrawComplete={handleDrawComplete}
+            disabled={drawingDisabled}
+            highlight={selectedBounds}
+            onCancelDrawing={cancelDrawingOnly}
+          />
+        </div>
+      )}
       {panelNode}
     </>
   );

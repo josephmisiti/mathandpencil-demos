@@ -19,7 +19,7 @@ export default function MapView({
   markers,
   zoom = 12,
   onViewChange,
-  onRoofAnalysisModeChange,
+  onRoofAnalysisVisibilityChange,
   roofAnalysisPanelRef
 }: MapProps) {
   const [selectedMarker, setSelectedMarker] = useState<Location | null>(null);
@@ -59,18 +59,36 @@ export default function MapView({
   const [distanceMode, setDistanceMode] = useState(false);
   const [distancePoints, setDistancePoints] = useState<google.maps.LatLngLiteral[]>([]);
   const [distance, setDistance] = useState<number | null>(null);
-  const [roofAnalysisMode, setRoofAnalysisMode] = useState(false);
+  const [roofAnalysisVisible, setRoofAnalysisVisible] = useState(false);
+  const [roofAnalysisOverlay, setRoofAnalysisOverlay] = useState(false);
   const [mapTypeId, setMapTypeId] = useState<string>("roadmap");
 
   const isSatelliteView = mapTypeId === "satellite" || mapTypeId === "hybrid";
 
-  const setRoofAnalysisModeState = useCallback(
-    (active: boolean) => {
-      setRoofAnalysisMode(active);
-      onRoofAnalysisModeChange?.(active);
+  const updateRoofAnalysisVisibility = useCallback(
+    (visible: boolean) => {
+      setRoofAnalysisVisible(visible);
+      onRoofAnalysisVisibilityChange?.(visible);
     },
-    [onRoofAnalysisModeChange]
+    [onRoofAnalysisVisibilityChange]
   );
+
+  const openRoofAnalysis = useCallback(() => {
+    if (!isSatelliteView) {
+      return;
+    }
+    updateRoofAnalysisVisibility(true);
+    setRoofAnalysisOverlay(true);
+  }, [isSatelliteView, updateRoofAnalysisVisibility]);
+
+  const closeRoofAnalysis = useCallback(() => {
+    setRoofAnalysisOverlay(false);
+    updateRoofAnalysisVisibility(false);
+  }, [updateRoofAnalysisVisibility]);
+
+  const stopRoofAnalysisOverlay = useCallback(() => {
+    setRoofAnalysisOverlay(false);
+  }, []);
 
   const { imagery, status, error } = useEagleViewImagery(
     highResEnabled,
@@ -231,9 +249,11 @@ export default function MapView({
           setContextMenu(null);
         }
 
-        if (roofAnalysisMode) {
-          console.log("Canceling roof analysis mode");
-          setRoofAnalysisModeState(false);
+        if (roofAnalysisOverlay) {
+          console.log("Stopping roof analysis overlay");
+          event.preventDefault();
+          event.stopPropagation();
+          stopRoofAnalysisOverlay();
         }
       }
     };
@@ -242,7 +262,7 @@ export default function MapView({
     return () => {
       document.removeEventListener("keydown", handler);
     };
-  }, [measureMode, distanceMode, contextMenu, polygonArea, distance, roofAnalysisMode, setRoofAnalysisModeState]);
+  }, [measureMode, distanceMode, contextMenu, polygonArea, distance, roofAnalysisOverlay, stopRoofAnalysisOverlay]);
 
   // Only cleanup polygon data when explicitly requested via ESC or Clear button
   // Don't auto-clear when measureMode becomes false, as we want to show the completed polygon
@@ -257,9 +277,9 @@ export default function MapView({
     setMapTypeId(nextType);
 
     if (nextType !== "satellite" && nextType !== "hybrid") {
-      setRoofAnalysisModeState(false);
+      stopRoofAnalysisOverlay();
     }
-  }, [setRoofAnalysisModeState]);
+  }, [stopRoofAnalysisOverlay]);
 
   const handleMapTypeIdChanged = useCallback((event: { map: google.maps.Map }) => {
     syncMapTypeId(event.map);
@@ -274,10 +294,10 @@ export default function MapView({
       mapInstanceRef.current?.setMapTypeId(nextType);
       setMapTypeId(nextType);
       if (nextType !== "satellite" && nextType !== "hybrid") {
-        setRoofAnalysisModeState(false);
+        stopRoofAnalysisOverlay();
       }
     },
-    [setRoofAnalysisModeState]
+    [stopRoofAnalysisOverlay]
   );
 
   return (
@@ -454,12 +474,16 @@ export default function MapView({
           </InfoWindow>
         )}
       </Map>
-      {roofAnalysisMode && isSatelliteView && (
+      {(roofAnalysisVisible || roofAnalysisOverlay) && (
         <RoofAnalysis
-          active={roofAnalysisMode}
+          overlayActive={roofAnalysisOverlay && isSatelliteView}
+          visible={roofAnalysisVisible}
           mapContainerRef={mapContainerRef}
-          onExit={() => setRoofAnalysisModeState(false)}
+          onExit={closeRoofAnalysis}
+          onOverlayCancel={stopRoofAnalysisOverlay}
+          onRequestDraw={openRoofAnalysis}
           panelContainerRef={roofAnalysisPanelRef}
+          isSatelliteView={isSatelliteView}
         />
       )}
       {(() => {
@@ -626,7 +650,7 @@ export default function MapView({
                       if (!isSatelliteView) {
                         return;
                       }
-                      setRoofAnalysisModeState(true);
+                      openRoofAnalysis();
                       setContextMenu(null);
                     }}
                     title={isSatelliteView ? undefined : "Switch to Satellite view to use roof analysis"}
