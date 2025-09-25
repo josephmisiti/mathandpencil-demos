@@ -13,6 +13,10 @@ interface MapControlsProps {
   onFloodZoneToggle: (enabled: boolean) => void;
   sloshEnabled: Partial<Record<SloshCategory, boolean>>;
   onSloshToggle: (category: SloshCategory, enabled: boolean) => void;
+  mapTypeId: string;
+  onMapTypeChange: (mapTypeId: google.maps.MapTypeId) => void;
+  isSatelliteView: boolean;
+
   highResLoading?: boolean;
   highResError?: string | null;
 }
@@ -24,6 +28,10 @@ export default function MapControls({
   onFloodZoneToggle,
   sloshEnabled,
   onSloshToggle,
+  mapTypeId,
+  onMapTypeChange,
+  isSatelliteView,
+
   highResLoading = false,
   highResError = null
 }: MapControlsProps) {
@@ -75,6 +83,31 @@ export default function MapControls({
 
         {isOpen && (
           <div className="border-t border-gray-200">
+            <div className="px-4 py-3 border-b border-gray-200">
+              <p className="text-sm font-medium text-gray-700">Basemap</p>
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                {[
+                  { label: "Map", value: "roadmap" as const },
+                  { label: "Satellite", value: "satellite" as const }
+                ].map(({ label, value }) => {
+                  const isActive = mapTypeId === value || (value === "satellite" && isSatelliteView);
+                  return (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => onMapTypeChange(value)}
+                      className={`rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+                        isActive
+                          ? "bg-blue-600 text-white shadow"
+                          : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
             <div className="px-4 py-3">
               <div className="flex items-center justify-between">
                 <label htmlFor="high-res-toggle" className="text-sm font-medium text-gray-700">
@@ -125,6 +158,7 @@ export default function MapControls({
                 </button>
               </div>
             </div>
+
             <div className="px-4 py-3 border-t border-gray-200 space-y-2">
               <p className="text-sm font-medium text-gray-700">SLOSH Inundation</p>
               <div className="space-y-2">

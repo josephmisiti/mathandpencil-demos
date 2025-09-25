@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Map, Marker, InfoWindow, useMap } from "@vis.gl/react-google-maps";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Map, Marker, InfoWindow } from "@vis.gl/react-google-maps";
 import { MapProps, Location } from "../types/location";
 import MarkerInfo from "./MarkerInfo";
 import MapControls from "./MapControls";
@@ -11,13 +11,16 @@ import FloodZoneLegend from "./FloodZoneLegend";
 import SloshLegend from "./SloshLegend";
 import MeasurementPolygon from "./MeasurementPolygon";
 import DistanceMeasurement from "./DistanceMeasurement";
+import RoofAnalysis from "./RoofAnalysis";
 import { SLOSH_CATEGORIES, SloshCategory } from "../constants/slosh";
 
 export default function MapView({
   center,
   markers,
   zoom = 12,
-  onViewChange
+  onViewChange,
+  onRoofAnalysisVisibilityChange,
+  roofAnalysisPanelRef
 }: MapProps) {
   const [selectedMarker, setSelectedMarker] = useState<Location | null>(null);
   const [highResEnabled, setHighResEnabled] = useState(false);
@@ -42,6 +45,7 @@ export default function MapView({
   const mapCenterRef = useRef(mapCenter);
   const mapZoomRef = useRef(mapZoom);
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
+  const mapInstanceRef = useRef<google.maps.Map | null>(null);
   const [contextMenu, setContextMenu] = useState<
     | null
     | {
@@ -55,6 +59,36 @@ export default function MapView({
   const [distanceMode, setDistanceMode] = useState(false);
   const [distancePoints, setDistancePoints] = useState<google.maps.LatLngLiteral[]>([]);
   const [distance, setDistance] = useState<number | null>(null);
+  const [roofAnalysisVisible, setRoofAnalysisVisible] = useState(false);
+  const [roofAnalysisOverlay, setRoofAnalysisOverlay] = useState(false);
+  const [mapTypeId, setMapTypeId] = useState<string>("roadmap");
+
+  const isSatelliteView = mapTypeId === "satellite" || mapTypeId === "hybrid";
+
+  const updateRoofAnalysisVisibility = useCallback(
+    (visible: boolean) => {
+      setRoofAnalysisVisible(visible);
+      onRoofAnalysisVisibilityChange?.(visible);
+    },
+    [onRoofAnalysisVisibilityChange]
+  );
+
+  const openRoofAnalysis = useCallback(() => {
+    if (!isSatelliteView) {
+      return;
+    }
+    updateRoofAnalysisVisibility(true);
+    setRoofAnalysisOverlay(true);
+  }, [isSatelliteView, updateRoofAnalysisVisibility]);
+
+  const closeRoofAnalysis = useCallback(() => {
+    setRoofAnalysisOverlay(false);
+    updateRoofAnalysisVisibility(false);
+  }, [updateRoofAnalysisVisibility]);
+
+  const stopRoofAnalysisOverlay = useCallback(() => {
+    setRoofAnalysisOverlay(false);
+  }, []);
 
   const { imagery, status, error } = useEagleViewImagery(
     highResEnabled,
@@ -214,6 +248,13 @@ export default function MapView({
           console.log("Closing context menu");
           setContextMenu(null);
         }
+
+        if (roofAnalysisOverlay) {
+          console.log("Stopping roof analysis overlay");
+          event.preventDefault();
+          event.stopPropagation();
+          stopRoofAnalysisOverlay();
+        }
       }
     };
 
@@ -221,13 +262,43 @@ export default function MapView({
     return () => {
       document.removeEventListener("keydown", handler);
     };
-  }, [measureMode, distanceMode, contextMenu, polygonArea, distance]);
+  }, [measureMode, distanceMode, contextMenu, polygonArea, distance, roofAnalysisOverlay, stopRoofAnalysisOverlay]);
 
   // Only cleanup polygon data when explicitly requested via ESC or Clear button
   // Don't auto-clear when measureMode becomes false, as we want to show the completed polygon
 
   // Only cleanup distance data when explicitly requested via ESC or Clear button
   // Don't auto-clear when distanceMode becomes false, as we want to show the result
+
+  const syncMapTypeId = useCallback((map: google.maps.Map | undefined) => {
+    if (!map) return;
+    mapInstanceRef.current = map;
+    const nextType = map.getMapTypeId?.() ?? "roadmap";
+    setMapTypeId(nextType);
+
+    if (nextType !== "satellite" && nextType !== "hybrid") {
+      stopRoofAnalysisOverlay();
+    }
+  }, [stopRoofAnalysisOverlay]);
+
+  const handleMapTypeIdChanged = useCallback((event: { map: google.maps.Map }) => {
+    syncMapTypeId(event.map);
+  }, [syncMapTypeId]);
+
+  const handleTilesLoaded = useCallback((event: { map: google.maps.Map }) => {
+    syncMapTypeId(event.map);
+  }, [syncMapTypeId]);
+
+  const handleMapTypeChange = useCallback(
+    (nextType: google.maps.MapTypeId) => {
+      mapInstanceRef.current?.setMapTypeId(nextType);
+      setMapTypeId(nextType);
+      if (nextType !== "satellite" && nextType !== "hybrid") {
+        stopRoofAnalysisOverlay();
+      }
+    },
+    [stopRoofAnalysisOverlay]
+  );
 
   return (
     <div ref={mapContainerRef} className="relative h-screen w-screen">
@@ -240,8 +311,12 @@ export default function MapView({
         onSloshToggle={(category, enabled) =>
           setSloshEnabled((prev) => ({ ...prev, [category]: enabled }))
         }
+        mapTypeId={mapTypeId}
+        onMapTypeChange={handleMapTypeChange}
+        isSatelliteView={isSatelliteView}
         highResLoading={status === "loading"}
         highResError={highResErrorMessage}
+
       />
       <Map
         zoom={mapZoom}
@@ -256,11 +331,11 @@ export default function MapView({
         streetViewControlOptions={{
           position: google.maps.ControlPosition.LEFT_CENTER
         }}
-        mapTypeControl={true}
-        mapTypeControlOptions={{
-          position: google.maps.ControlPosition.LEFT_BOTTOM
-        }}
+        mapTypeControl={false}
+        mapTypeId={mapTypeId as google.maps.MapTypeId}
         fullscreenControl={false}
+        onTilesLoaded={handleTilesLoaded}
+        onMapTypeIdChanged={handleMapTypeIdChanged}
         onZoomChanged={(event) => {
           const newZoom = event.detail.zoom;
           setMapZoom(newZoom);
@@ -367,12 +442,12 @@ export default function MapView({
         />
 
         {/* Render measurement polygon using custom component */}
-        <MeasurementPolygon points={polygonPoints} area={polygonArea} />
+        <MeasurementPolygon points={polygonPoints} area={polygonArea ?? undefined} />
 
         {/* Render distance measurement using custom component */}
         <DistanceMeasurement
           points={distancePoints}
-          distance={distance}
+          distance={distance ?? undefined}
           onClear={() => {
             setDistance(null);
             setDistancePoints([]);
@@ -399,6 +474,18 @@ export default function MapView({
           </InfoWindow>
         )}
       </Map>
+      {(roofAnalysisVisible || roofAnalysisOverlay) && (
+        <RoofAnalysis
+          overlayActive={roofAnalysisOverlay && isSatelliteView}
+          visible={roofAnalysisVisible}
+          mapContainerRef={mapContainerRef}
+          onExit={closeRoofAnalysis}
+          onOverlayCancel={stopRoofAnalysisOverlay}
+          onRequestDraw={openRoofAnalysis}
+          panelContainerRef={roofAnalysisPanelRef}
+          isSatelliteView={isSatelliteView}
+        />
+      )}
       {(() => {
         const sloshVisible = SLOSH_CATEGORIES.some((category) => sloshEnabled[category]);
         const showAnyLegend = floodZoneEnabled || sloshVisible;
@@ -556,6 +643,25 @@ export default function MapView({
                   >
                     📏 Measure distance
                   </button>
+                  <button
+                    className="block w-full px-4 py-2 text-left text-sm text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:text-slate-400"
+                    disabled={!isSatelliteView}
+                    onClick={() => {
+                      if (!isSatelliteView) {
+                        return;
+                      }
+                      openRoofAnalysis();
+                      setContextMenu(null);
+                    }}
+                    title={isSatelliteView ? undefined : "Switch to Satellite view to use roof analysis"}
+                  >
+                    🏠 Roof Analysis
+                  </button>
+                  {!isSatelliteView && (
+                    <div className="px-4 pb-1 pt-1 text-xs text-slate-400">
+                      Switch to Satellite map view to enable roof analysis
+                    </div>
+                  )}
                 </>
               )}
 

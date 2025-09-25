@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { APIProvider } from "@vis.gl/react-google-maps";
 import AddressSearch from "./components/AddressSearch";
 import MapView from "./components/MapView";
@@ -19,6 +19,8 @@ function App() {
   const [markers, setMarkers] = useState<Location[]>([]);
   const [initialAddress, setInitialAddress] = useState("");
   const [mapZoom, setMapZoom] = useState<number>(DEFAULT_ZOOM);
+  const [isRoofAnalysisActive, setIsRoofAnalysisActive] = useState(false);
+  const roofPanelContainerRef = useRef<HTMLDivElement | null>(null);
 
   // Read URL parameters on mount
   useEffect(() => {
@@ -118,13 +120,20 @@ function App() {
           markers={markers}
           zoom={mapZoom}
           onViewChange={handleMapViewChange}
+          onRoofAnalysisVisibilityChange={setIsRoofAnalysisActive}
+          roofAnalysisPanelRef={roofPanelContainerRef}
         />
 
-        <div className="absolute top-4 left-4 z-10 w-96">
+        <div className="absolute top-4 left-4 z-10 flex h-[calc(100vh-2rem)] w-96 flex-col gap-4">
           <AddressSearch
             onLocationSelect={handleLocationSelect}
             onAddressClear={handleAddressClear}
             initialAddress={initialAddress}
+            hidePdfUpload={isRoofAnalysisActive}
+          />
+          <div
+            ref={roofPanelContainerRef}
+            className={isRoofAnalysisActive ? "flex-1 min-h-0 overflow-y-auto pr-2" : "hidden"}
           />
         </div>
       </div>

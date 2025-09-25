@@ -9,7 +9,8 @@ import PdfUploadDropzone from './PdfUploadDropzone';
 export default function AddressSearch({ 
   onLocationSelect, 
   onAddressClear, 
-  initialAddress = '' 
+  initialAddress = '',
+  hidePdfUpload = false
 }: AddressSearchProps) {
   const [address, setAddress] = useState(initialAddress);
 
@@ -114,9 +115,11 @@ export default function AddressSearch({
       </div>
 
       {/* PDF Upload Section - separate container to avoid event conflicts */}
-      <div>
-        <PdfUploadDropzone onComplete={handlePdfComplete} />
-      </div>
+      {!hidePdfUpload && (
+        <div>
+          <PdfUploadDropzone onComplete={handlePdfComplete} />
+        </div>
+      )}
     </div>
   );
 }
