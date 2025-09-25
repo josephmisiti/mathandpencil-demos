@@ -548,10 +548,10 @@ def generate_roof_report(
 
             reports_dir = "/my-volume/roof-analysis-results/reports"
             os.makedirs(reports_dir, exist_ok=True)
-            report_basename = os.path.splitext(os.path.basename(analysis_path))[0] or datetime.utcnow().strftime(
-                "%Y-%m-%d_%H-%M-%S"
-            )
-            report_path = os.path.join(reports_dir, f"{report_basename}.pdf")
+            report_filename = f"{job_id}.pdf"
+            report_path = os.path.join(reports_dir, report_filename)
+            if os.path.exists(report_path):
+                os.remove(report_path)
             shutil.move(pdf_source, report_path)
     except ReportGenerationError:
         raise
@@ -772,7 +772,14 @@ def process_roof_analysis(image_data: str, job_id: str):
             raise
 
         artifacts = result_payload.setdefault("artifacts", {})
-        artifacts["report_path"] = report_path
+
+        reports_dir = "/my-volume/roof-analysis-results/reports"
+        relative_report = report_path
+        if report_path.startswith(reports_dir):
+            relative_report = os.path.relpath(report_path, reports_dir)
+
+        artifacts["report_path"] = relative_report
+        artifacts["report_absolute_path"] = report_path
         result_payload["report_generated_at"] = report_timestamp
 
         update_progress(
@@ -877,13 +884,31 @@ def download_report(job_id: str, token: str = Depends(verify_token)):
     payload = progress_store[job_id]
     result = payload.get("result") or {}
     artifacts = result.get("artifacts") or {}
-    report_path = artifacts.get("report_path")
+    report_path = artifacts.get("report_absolute_path") or artifacts.get("report_path")
 
-    if not report_path or not os.path.exists(report_path):
+    if not report_path:
         raise HTTPException(status_code=404, detail="Report not available")
 
-    filename = os.path.basename(report_path) or "roof_analysis.pdf"
-    return FileResponse(report_path, media_type="application/pdf", filename=filename)
+    reports_dir = "/my-volume/roof-analysis-results/reports"
+    expected_path = os.path.join(reports_dir, f"{job_id}.pdf")
+
+    candidate_paths: list[str] = []
+    for candidate in [expected_path, report_path, artifacts.get("report_path"), artifacts.get("report_absolute_path")]:
+        if candidate and candidate not in candidate_paths:
+            candidate_paths.append(candidate)
+
+    for candidate in candidate_paths:
+        resolved_path = candidate
+        if not os.path.isabs(resolved_path):
+            resolved_path = os.path.join(reports_dir, resolved_path)
+
+        if os.path.exists(resolved_path):
+            filename = os.path.basename(resolved_path) or f"{job_id}.pdf"
+            print(f"[ROOF] Job {job_id}: serving report from {resolved_path}")
+            return FileResponse(resolved_path, media_type="application/pdf", filename=filename)
+
+    print(f"[ROOF] Job {job_id}: report not found after checking {candidate_paths}")
+    raise HTTPException(status_code=404, detail="Report not available")
 
 
 # Deploy the web app
