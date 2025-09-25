@@ -163,9 +163,14 @@ const RoofAnalysis: React.FC<RoofAnalysisProps> = ({
         <div className="pointer-events-auto rounded-md border border-slate-200 bg-white/95 p-4 shadow-lg backdrop-blur">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <h3 className="text-base font-semibold text-slate-900">
-                Roof analysis mode
-              </h3>
+              <div className="flex items-center gap-2">
+                <h3 className="text-base font-semibold text-slate-900">
+                  Roof analysis mode
+                </h3>
+                <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">
+                  Satellite view
+                </span>
+              </div>
               <p className="mt-1 text-sm text-slate-600">
                 Click and drag on the map to draw a bounding box around the
                 roof. The selected area will be uploaded for analysis.

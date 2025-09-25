@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Map, Marker, InfoWindow } from "@vis.gl/react-google-maps";
 import { MapProps, Location } from "../types/location";
 import MarkerInfo from "./MarkerInfo";
@@ -57,6 +57,9 @@ export default function MapView({
   const [distancePoints, setDistancePoints] = useState<google.maps.LatLngLiteral[]>([]);
   const [distance, setDistance] = useState<number | null>(null);
   const [roofAnalysisMode, setRoofAnalysisMode] = useState(false);
+  const [mapTypeId, setMapTypeId] = useState<string>("roadmap");
+
+  const isSatelliteView = mapTypeId === "satellite" || mapTypeId === "hybrid";
 
   const { imagery, status, error } = useEagleViewImagery(
     highResEnabled,
@@ -236,6 +239,24 @@ export default function MapView({
   // Only cleanup distance data when explicitly requested via ESC or Clear button
   // Don't auto-clear when distanceMode becomes false, as we want to show the result
 
+  const syncMapTypeId = useCallback((map: google.maps.Map | undefined) => {
+    if (!map) return;
+    const nextType = map.getMapTypeId?.() ?? "roadmap";
+    setMapTypeId(nextType);
+
+    if (nextType !== "satellite" && nextType !== "hybrid") {
+      setRoofAnalysisMode(false);
+    }
+  }, []);
+
+  const handleMapTypeIdChanged = useCallback((event: { map: google.maps.Map }) => {
+    syncMapTypeId(event.map);
+  }, [syncMapTypeId]);
+
+  const handleTilesLoaded = useCallback((event: { map: google.maps.Map }) => {
+    syncMapTypeId(event.map);
+  }, [syncMapTypeId]);
+
   return (
     <div ref={mapContainerRef} className="relative h-screen w-screen">
       <MapControls
@@ -269,6 +290,8 @@ export default function MapView({
           position: google.maps.ControlPosition.LEFT_BOTTOM
         }}
         fullscreenControl={false}
+        onTilesLoaded={handleTilesLoaded}
+        onMapTypeIdChanged={handleMapTypeIdChanged}
         onZoomChanged={(event) => {
           const newZoom = event.detail.zoom;
           setMapZoom(newZoom);
@@ -407,7 +430,7 @@ export default function MapView({
           </InfoWindow>
         )}
       </Map>
-      {roofAnalysisMode && (
+      {roofAnalysisMode && isSatelliteView && (
         <RoofAnalysis
           active={roofAnalysisMode}
           mapContainerRef={mapContainerRef}
@@ -572,14 +595,24 @@ export default function MapView({
                     📏 Measure distance
                   </button>
                   <button
-                    className="block w-full px-4 py-2 text-left text-sm text-slate-600 hover:bg-slate-100"
+                    className="block w-full px-4 py-2 text-left text-sm text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:text-slate-400"
+                    disabled={!isSatelliteView}
                     onClick={() => {
+                      if (!isSatelliteView) {
+                        return;
+                      }
                       setRoofAnalysisMode(true);
                       setContextMenu(null);
                     }}
+                    title={isSatelliteView ? undefined : "Switch to Satellite view to use roof analysis"}
                   >
                     🏠 Roof Analysis
                   </button>
+                  {!isSatelliteView && (
+                    <div className="px-4 pb-1 pt-1 text-xs text-slate-400">
+                      Switch to Satellite map view to enable roof analysis
+                    </div>
+                  )}
                 </>
               )}
 
