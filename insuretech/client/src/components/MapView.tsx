@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Map, Marker, InfoWindow } from "@vis.gl/react-google-maps";
+import { DeckGLOverlay } from "@deck.gl/google-maps";
 import { MapProps, Location } from "../types/location";
 import MarkerInfo from "./MarkerInfo";
 import MapControls from "./MapControls";
 import { useEagleViewImagery } from "../hooks/useEagleViewImagery";
-import EagleViewOverlay from "./EagleViewOverlay";
+import { EagleViewOverlay } from "./EagleViewOverlay";
 import FloodZoneOverlay from "./FloodZoneOverlay";
 import SloshOverlay from "./SloshOverlay";
 import FloodZoneLegend from "./FloodZoneLegend";
@@ -242,6 +243,20 @@ export default function MapView({
     if (!highResEnabled || status !== "ready") return null;
     return imagery;
   }, [highResEnabled, imagery, status]);
+
+  const layers = useMemo(() => {
+    const result = [];
+    if (overlayImagery) {
+      result.push(
+        EagleViewOverlay({
+          id: "eagleview-layer",
+          imagery: overlayImagery,
+          visible: highResEnabled,
+        })
+      );
+    }
+    return result;
+  }, [overlayImagery, highResEnabled]);
 
   // Calculate polygon area using the shoelace formula
   const calculatePolygonArea = (points: google.maps.LatLngLiteral[]): number => {
@@ -584,7 +599,7 @@ export default function MapView({
           openContextMenu(clickedLatLng, event.domEvent as MouseEvent | PointerEvent | undefined);
         }}
       >
-        <EagleViewOverlay enabled={!!overlayImagery} imagery={overlayImagery} />
+        <DeckGLOverlay layers={layers} />
         <FloodZoneOverlay enabled={floodZoneEnabled} />
         <SloshOverlay
           enabledCategories={SLOSH_CATEGORIES.filter((category) => sloshEnabled[category])}
