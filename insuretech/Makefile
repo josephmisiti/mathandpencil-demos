@@ -15,3 +15,6 @@ deploy-geocoder:
 
 deploy-roof:
 	modal deploy backend/services/roof_analysis_api.py
+
+construction:
+	modal deploy backend/services/construction_analysis_api.py

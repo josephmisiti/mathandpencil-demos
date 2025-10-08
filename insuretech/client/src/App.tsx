@@ -20,7 +20,9 @@ function App() {
   const [initialAddress, setInitialAddress] = useState("");
   const [mapZoom, setMapZoom] = useState<number>(DEFAULT_ZOOM);
   const [isRoofAnalysisActive, setIsRoofAnalysisActive] = useState(false);
+  const [isConstructionAnalysisActive, setIsConstructionAnalysisActive] = useState(false);
   const roofPanelContainerRef = useRef<HTMLDivElement | null>(null);
+  const constructionPanelContainerRef = useRef<HTMLDivElement | null>(null);
 
   // Read URL parameters on mount
   useEffect(() => {
@@ -122,6 +124,8 @@ function App() {
           onViewChange={handleMapViewChange}
           onRoofAnalysisVisibilityChange={setIsRoofAnalysisActive}
           roofAnalysisPanelRef={roofPanelContainerRef}
+          onConstructionAnalysisVisibilityChange={setIsConstructionAnalysisActive}
+          constructionAnalysisPanelRef={constructionPanelContainerRef}
         />
 
         <div className="absolute top-4 left-4 z-10 flex h-[calc(100vh-2rem)] w-96 flex-col gap-4">
@@ -129,11 +133,15 @@ function App() {
             onLocationSelect={handleLocationSelect}
             onAddressClear={handleAddressClear}
             initialAddress={initialAddress}
-            hidePdfUpload={isRoofAnalysisActive}
+            hidePdfUpload={isRoofAnalysisActive || isConstructionAnalysisActive}
           />
           <div
             ref={roofPanelContainerRef}
             className={isRoofAnalysisActive ? "flex-1 min-h-0 overflow-y-auto pr-2" : "hidden"}
+          />
+          <div
+            ref={constructionPanelContainerRef}
+            className={isConstructionAnalysisActive ? "flex-1 min-h-0 overflow-y-auto pr-2" : "hidden"}
           />
         </div>
       </div>

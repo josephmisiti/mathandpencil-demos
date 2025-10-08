@@ -1,12 +1,17 @@
 """
-Combine processed SLOSH COGs into global PMTiles archives by zoom range.
+Combine processed SLOSH COGs into PMTiles archives by region and category.
 
-This creates 3 global files:
-- SLOSH_GLOBAL_z0_10.pmtiles   (all geographies, all categories, zoom 0-10)
-- SLOSH_GLOBAL_z10_16.pmtiles  (all geographies, all categories, zoom 10-16)  
-- SLOSH_GLOBAL_z16_20.pmtiles  (all geographies, all categories, zoom 16-20)
+This creates PMTiles for each category within a region:
+- SLOSH_PR_Category1.pmtiles (Puerto Rico, Category 1, all zoom levels)
+- SLOSH_PR_Category2.pmtiles (Puerto Rico, Category 2, all zoom levels)
+- etc.
 
-Usage: modal run slosh_zone_combiner.py global_zoom run_tag=20250924
+Usage:
+  modal run slosh_zone_combiner.py --region pr run_tag=20250924 resume=false
+  modal run slosh_zone_combiner.py --region us run_tag=20250924 resume=false
+  modal run slosh_zone_combiner.py --region hawaii run_tag=20250924 resume=false
+  modal run slosh_zone_combiner.py --region southern_california run_tag=20250924 resume=false
+  modal run slosh_zone_combiner.py --region american_samoa run_tag=20250924 resume=false
 """
 
 from __future__ import annotations
@@ -33,6 +38,19 @@ SLOSH_CATEGORY_NAMES: List[str] = [
 
 ZOOM_RANGES = ["z0_10", "z10_16", "z16_20"]
 
+# Region mapping: input name -> (folder name, output prefix)
+REGION_MAP = {
+    "pr": ("puerto_rico", "SLOSH_PR"),
+    "puerto_rico": ("puerto_rico", "SLOSH_PR"),
+    "us": ("us", "SLOSH_US"),
+    "hawaii": ("hawaii", "SLOSH_HAWAII"),
+    "hi": ("hawaii", "SLOSH_HAWAII"),
+    "southern_california": ("southern_california", "SLOSH_SOUTHERN_CALIFORNIA"),
+    "sc": ("southern_california", "SLOSH_SOUTHERN_CALIFORNIA"),
+    "american_samoa": ("american_samoa", "SLOSH_AMERICAN_SAMOA"),
+    "as": ("american_samoa", "SLOSH_AMERICAN_SAMOA"),
+}
+
 STORAGE_ROOT = Path("/cache")
 PROCESSED_ROOT = STORAGE_ROOT / "processed"
 OUTPUT_ROOT = STORAGE_ROOT / "outputs"
@@ -56,106 +74,90 @@ geo_image = (
 
 app = modal.App("slosh-combiner", image=geo_image)
 
-def discover_all_datasets() -> List[Dict[str, str]]:
-    """Discover all available datasets by scanning the processed directory."""
-    discovered_datasets = []
+def find_cog_files_for_category(
+    region_folder: str,
+    category: str,
+    run_tag: Optional[str]
+) -> List[str]:
+    """Find all COG files for a specific region and category across all zoom ranges."""
+    processed_dir = PROCESSED_ROOT / region_folder
+    if not processed_dir.exists():
+        logger.warning(f"Processed directory does not exist: {processed_dir}")
+        return []
 
-    if not PROCESSED_ROOT.exists():
-        logger.warning("Processed root directory does not exist: %s", PROCESSED_ROOT)
-        return discovered_datasets
-
-    for subdir in PROCESSED_ROOT.iterdir():
-        if not subdir.is_dir():
-            continue
-
-        cog_files = list(subdir.glob("*.cog.tif"))
-        if not cog_files:
-            continue
-
-        first_cog = cog_files[0]
-        name_parts = first_cog.stem.split("_")
-        if len(name_parts) >= 2:
-            output_prefix = "_".join(name_parts[:2])
-        else:
-            output_prefix = f"SLOSH_{subdir.name.upper()}"
-
-        dataset = {
-            "key": subdir.name,
-            "description": subdir.name.replace("_", " ").title(),
-            "output_prefix": output_prefix,
-            "processed_subdir": subdir.name,
-        }
-
-        discovered_datasets.append(dataset)
-        logger.info("Discovered dataset: %s (%s)", dataset["description"], output_prefix)
-
-    return discovered_datasets
-
-def find_cog_files_for_zoom_range(zoom_range: str, run_tag: Optional[str]) -> List[str]:
-    """Find all COG files for a specific zoom range across all geographies and categories."""
-    all_datasets = discover_all_datasets()
     cog_files = []
-    
-    for dataset in all_datasets:
-        processed_dir = PROCESSED_ROOT / dataset["processed_subdir"]
-        if not processed_dir.exists():
-            continue
-            
-        for category in SLOSH_CATEGORY_NAMES:
-            if run_tag:
-                pattern = f"{dataset['output_prefix']}_{category}_{zoom_range}_{run_tag}.cog.tif"
-            else:
-                pattern = f"{dataset['output_prefix']}_{category}_{zoom_range}*.cog.tif"
-            
-            candidates = sorted(processed_dir.glob(pattern))
-            if candidates:
-                # Take the most recent file
-                latest = max(candidates, key=lambda p: (p.name, p.stat().st_mtime))
-                cog_files.append(str(latest))
-                logger.info(f"Adding {latest.name} to {zoom_range}")
-    
+
+    # Find all COG files for this category across all zoom ranges
+    for zoom_range in ZOOM_RANGES:
+        if run_tag:
+            pattern = f"*_{category}_{zoom_range}_{run_tag}.cog.tif"
+        else:
+            pattern = f"*_{category}_{zoom_range}*.cog.tif"
+
+        candidates = sorted(processed_dir.glob(pattern))
+        if candidates:
+            # Take the most recent file
+            latest = max(candidates, key=lambda p: (p.name, p.stat().st_mtime))
+            cog_files.append(str(latest))
+            logger.info(f"Adding {latest.name} for {category}")
+
     return cog_files
 
-def create_global_pmtiles_for_zoom_range(zoom_range: str, run_tag: Optional[str]) -> bool:
-    """Create a single global PMTiles file for all geographies and categories at a zoom range."""
-    
-    cog_files = find_cog_files_for_zoom_range(zoom_range, run_tag)
-    
+def create_pmtiles_for_category(
+    region_folder: str,
+    output_prefix: str,
+    category: str,
+    run_tag: Optional[str],
+    *,
+    resume: bool = True,
+) -> bool:
+    """Create a single PMTiles file for a specific region and category, combining all zoom ranges."""
+
+    output_name = f"{output_prefix}_{category}.pmtiles"
+    destination = OUTPUT_ROOT / region_folder / output_name
+
+    if resume and destination.exists():
+        logger.info(
+            "Skipping %s because it already exists. Use resume=false to rebuild.",
+            destination,
+        )
+        return True
+
+    cog_files = find_cog_files_for_category(region_folder, category, run_tag)
+
     if not cog_files:
-        logger.warning(f"No COG files found for {zoom_range}")
+        logger.warning(f"No COG files found for {region_folder}/{category}")
         return False
-        
-    logger.info(f"Creating global {zoom_range} PMTiles from {len(cog_files)} COG files")
-    
+
+    logger.info(f"Creating {output_name} from {len(cog_files)} COG files")
+
+    destination.parent.mkdir(parents=True, exist_ok=True)
+
     with tempfile.TemporaryDirectory() as tmp_dir:
         tmp_dir_path = Path(tmp_dir)
-        
-        # Create VRT mosaic combining all COGs for this zoom range
-        vrt_path = tmp_dir_path / f"global_{zoom_range}.vrt"
-        
+
+        # Create a VRT combining all zoom ranges for this category
+        vrt_file = tmp_dir_path / f"{output_prefix}_{category}.vrt"
+
         run_command([
             "gdalbuildvrt",
             "-resolution", "highest",    # Use highest resolution where files overlap
-            "-srcnodata", "0",          # Treat 0 as nodata  
+            "-srcnodata", "0",          # Treat 0 as nodata
             "-vrtnodata", "0",
-            str(vrt_path),
+            str(vrt_file),
             *cog_files
-        ], f"gdalbuildvrt {zoom_range}")
-        
-        # Output path
-        tag_suffix = f"_{run_tag}" if run_tag else ""
-        output_name = f"SLOSH_GLOBAL_{zoom_range}{tag_suffix}.pmtiles"
-        destination = OUTPUT_ROOT / "global" / output_name
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        
+        ], f"gdalbuildvrt {category}")
+
         # Convert VRT to PMTiles
-        convert_cog_to_pmtiles(vrt_path, destination)
-        logger.info(f"Created global PMTiles: {destination}")
-        
+        convert_cog_to_pmtiles(vrt_file, destination)
+        logger.info(f"Created PMTiles: {destination}")
+
     return True
 
 def convert_cog_to_pmtiles(source: Path, destination: Path) -> None:
     """Reproject a COG to WebMercator and convert it into PMTiles."""
+
+    logger.info(f"Starting conversion of {source.name} to PMTiles (size: {source.stat().st_size / (1024**3):.2f} GB)")
 
     with tempfile.TemporaryDirectory() as tmp_dir:
         tmp_dir_path = Path(tmp_dir)
@@ -166,10 +168,16 @@ def convert_cog_to_pmtiles(source: Path, destination: Path) -> None:
         run_command([
             "gdalwarp",
             "-t_srs", "EPSG:3857",
-            "-r", "bilinear", 
+            "-r", "bilinear",
             "-of", "COG",
             "-co", "COMPRESS=LZW",
             "-co", "PREDICTOR=2",
+            "-co", "TILED=YES",
+            "-co", "BLOCKXSIZE=512",
+            "-co", "BLOCKYSIZE=512",
+            "-wo", "NUM_THREADS=ALL_CPUS",
+            "-multi",
+            "--config", "GDAL_CACHEMAX", "4096",
             str(source),
             str(warped),
         ], "gdalwarp")
@@ -207,39 +215,62 @@ def run_command(command: Sequence[str], label: str) -> None:
 
 @app.function(
     volumes={str(STORAGE_ROOT): volume},
-    timeout=12*3600,  # Longer timeout for global processing
-    memory=8*4096,    # More memory for large VRTs
+    timeout=86400,      # Maximum 24 hours
+    memory=32 * 1024,   # 32GB RAM for VRT processing
+    cpu=16.0,          # 16 CPU cores for parallel processing
 )
-def combine_global_zoom_ranges(run_tag: Optional[str] = None) -> None:
-    """Create 3 global PMTiles files organized by zoom range."""
-    
+def combine_region_categories(
+    region: str,
+    run_tag: Optional[str] = None,
+    *,
+    resume: bool = True,
+) -> None:
+    """Create PMTiles files for each category in a specific region."""
+
+    region_lower = region.lower()
+    if region_lower not in REGION_MAP:
+        logger.error(f"Unknown region: {region}. Valid regions: {', '.join(REGION_MAP.keys())}")
+        raise ValueError(f"Unknown region: {region}")
+
+    region_folder, output_prefix = REGION_MAP[region_lower]
+
+    logger.info(f"Processing region: {region_folder} (output prefix: {output_prefix})")
+
     OUTPUT_ROOT.mkdir(parents=True, exist_ok=True)
-    
+
     produced_any = False
-    
-    for zoom_range in ZOOM_RANGES:
-        logger.info(f"Processing global {zoom_range}...")
-        if create_global_pmtiles_for_zoom_range(zoom_range, run_tag):
+
+    for category in SLOSH_CATEGORY_NAMES:
+        logger.info(f"Processing {region_folder}/{category}...")
+        if create_pmtiles_for_category(region_folder, output_prefix, category, run_tag, resume=resume):
             produced_any = True
-    
+
     if produced_any:
         volume.commit()
-        logger.info("Global zoom-range PMTiles creation complete")
+        logger.info(f"PMTiles creation complete for region: {region_folder}")
     else:
-        logger.warning("No global PMTiles were created")
+        logger.warning(f"No PMTiles were created for region: {region_folder}")
 
 @app.local_entrypoint()
 def main(*args: str) -> None:
     run_tag: Optional[str] = None
-    mode = "global_zoom"
-    
+    resume = True
+    region: Optional[str] = None
+
     for arg in args:
-        if arg.startswith("run_tag="):
+        if arg.startswith("--region="):
+            region = arg.split("=", 1)[1]
+        elif arg.startswith("region="):
+            region = arg.split("=", 1)[1]
+        elif arg.startswith("run_tag="):
             run_tag = arg.split("=", 1)[1]
-        elif arg == "global_zoom":
-            mode = "global_zoom"
-    
-    if mode == "global_zoom":
-        combine_global_zoom_ranges.remote(run_tag=run_tag)
-    else:
-        logger.error("Only global_zoom mode is supported in this version")
+        elif arg.startswith("resume="):
+            value = arg.split("=", 1)[1].lower()
+            resume = value not in {"0", "false", "no"}
+
+    if not region:
+        logger.error("Region is required. Usage: modal run slosh_zone_combiner.py --region=pr run_tag=20250924")
+        logger.error(f"Valid regions: {', '.join(sorted(set(REGION_MAP.keys())))}")
+        return
+
+    combine_region_categories.remote(region=region, run_tag=run_tag, resume=resume)

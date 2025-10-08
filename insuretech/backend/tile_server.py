@@ -60,17 +60,12 @@ PMTILES_VARIANTS: List[Dict[str, str]] = [
         "dataset": "flood_zones",
         "path": os.path.join(BASE_DIR, "source", "NFHL_combined.pmtiles"),
     },
+    {
+        "key": "slosh_global_z0_10",
+        "dataset": "slosh",
+        "path": os.path.join(BASE_DIR, "source", "SLOSH_GLOBAL_z0_10.pmtiles"),
+    },
 ]
-
-for category in SLOSH_CATEGORIES:
-    PMTILES_VARIANTS.append(
-        {
-            "key": f"slosh_{category.lower()}",
-            "dataset": "slosh",
-            "category": category,
-            "path": os.path.join(BASE_DIR, "source", f"SLOSH_PR_{category}.pmtiles"),
-        }
-    )
 
 # Global catalogue of loaded PMTiles variants indexed by their key.
 CatalogEntry = Dict[str, object]
@@ -299,7 +294,8 @@ def _select_catalog_entry(
 
     for key in pmtiles_datasets[dataset]:
         entry = pmtiles_catalog[key]
-        if category and entry.get("category") != category:
+        # For SLOSH, we no longer filter by category since the global file contains all categories
+        if dataset != "slosh" and category and entry.get("category") != category:
             continue
         if not _bbox_intersects(bbox, entry["bounds"]):
             continue
@@ -366,23 +362,25 @@ def find_floodzone_feature(lat: float, lng: float) -> Optional[Dict[str, object]
         if not geometry:
             continue
 
-            try:
-                geom = shape(geometry)
-            except Exception as exc:  # pragma: no cover - invalid geometry
-                logging.debug("Invalid geometry in tile %s/%s/%s: %s", z, tile_x, tile_y, exc)
-                continue
+        # try:
+        #     geom = shape(geometry)
+        # except Exception as exc:  # pragma: no cover - invalid geometry
+        #     logging.debug("Invalid geometry in tile %s/%s/%s: %s", z, tile_x, tile_y, exc)
+        #     continue
 
-            if geom.is_empty:
-                continue
+        # if geom.is_empty:
+        #     continue
 
-            if geom.covers(point):
-                return {
-                    "layer": layer_name,
-                    "properties": feature.get("properties", {}),
-                    "geometry": geometry,
-                    "tile": {"z": z, "x": tile_x, "y": tile_y},
-                    "variant": entry["key"],
-                }
+        features = feature.get("properties", {})
+
+        if features:
+            return {
+                "layer": layer_name,
+                "properties": features,
+                # "geometry": geometry,
+                "tile": {"z": z, "x": tile_x, "y": tile_y},
+                "variant": entry["key"],
+            }
 
     return None
 
@@ -676,27 +674,15 @@ async def get_tile(z: int, x: int, y: int):
 
 
 @app.get("/tiles/slosh/{z}/{x}/{y}", response_class=Response)
-async def get_slosh_tile(
-    z: int,
-    x: int,
-    y: int,
-    category: str = Query(
-        ..., description="SLOSH category (Category1–Category5)."
-    ),
-):
-    normalized = category.strip().lower()
-    canonical = SLOSH_CATEGORY_LOOKUP.get(normalized)
-    if canonical is None:
-        raise HTTPException(status_code=400, detail="Unknown SLOSH category")
-
+async def get_slosh_tile(z: int, x: int, y: int):
+    """Get SLOSH tile from the global PMTiles file containing all categories."""
     try:
-        print(f"Serving SLOSH tile {category} {z}/{x}/{y}...")
+        print(f"Serving SLOSH tile {z}/{x}/{y}...")
         tile_data, content_type = get_tile_data(
             z,
             x,
             y,
             dataset="slosh",
-            category=canonical,
         )
         if tile_data is None:
             return Response(status_code=204)
@@ -711,7 +697,7 @@ async def get_slosh_tile(
 
         return Response(content=tile_data, headers=headers)
     except Exception as e:
-        print(f"Error serving SLOSH tile {category} {z}/{x}/{y}: {e}")
+        print(f"Error serving SLOSH tile {z}/{x}/{y}: {e}")
         traceback.print_exc()
         return Response(status_code=500, content=f"Error serving tile: {e}")
 

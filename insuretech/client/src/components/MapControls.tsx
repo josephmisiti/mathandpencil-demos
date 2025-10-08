@@ -16,6 +16,11 @@ interface MapControlsProps {
   mapTypeId: string;
   onMapTypeChange: (mapTypeId: google.maps.MapTypeId) => void;
   isSatelliteView: boolean;
+  overlaysActive: boolean;
+  onRoofAnalysis: () => void;
+  onConstructionAnalysis: () => void;
+  roofAnalysisActive?: boolean;
+  constructionAnalysisActive?: boolean;
 
   highResLoading?: boolean;
   highResError?: string | null;
@@ -31,6 +36,11 @@ export default function MapControls({
   mapTypeId,
   onMapTypeChange,
   isSatelliteView,
+  overlaysActive,
+  onRoofAnalysis,
+  onConstructionAnalysis,
+  roofAnalysisActive = false,
+  constructionAnalysisActive = false,
 
   highResLoading = false,
   highResError = null
@@ -62,6 +72,24 @@ export default function MapControls({
   const handleFloodToggle = () => {
     onFloodZoneToggle(!floodZoneEnabled);
   };
+
+  const overlaysDisabledMessage = useMemo(() => (
+    overlaysActive ? "Disable overlays to run analyses." : ""
+  ), [overlaysActive]);
+
+  const constructionDisabled = overlaysActive;
+  const roofDisabled = overlaysActive || !isSatelliteView;
+
+  const constructionTitle = overlaysDisabledMessage || undefined;
+  const roofTitle = overlaysDisabledMessage || (isSatelliteView ? undefined : "Switch to Satellite view to enable roof analysis.");
+
+  const constructionButtonClasses = `${"w-full rounded-md px-3 py-2 text-sm font-medium transition-colors"} ${
+    constructionAnalysisActive ? "bg-blue-600 text-white shadow" : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+  } ${constructionDisabled ? "cursor-not-allowed opacity-60 hover:bg-gray-100" : ""}`;
+
+  const roofButtonClasses = `${"w-full rounded-md px-3 py-2 text-sm font-medium transition-colors"} ${
+    roofAnalysisActive ? "bg-blue-600 text-white shadow" : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+  } ${roofDisabled ? "cursor-not-allowed opacity-60 hover:bg-gray-100" : ""}`;
 
   return (
     <div className="absolute top-4 right-4 z-20">
@@ -192,6 +220,42 @@ export default function MapControls({
                   );
                 })}
               </div>
+            </div>
+
+            <div className="px-4 py-3 border-t border-gray-200 space-y-2">
+              <p className="text-sm font-medium text-gray-700">Analysis Tools</p>
+              <div className="space-y-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (constructionDisabled) return;
+                    onConstructionAnalysis();
+                  }}
+                  disabled={constructionDisabled}
+                  className={constructionButtonClasses}
+                  title={constructionTitle}
+                >
+                  {constructionAnalysisActive ? "Construction Analysis Active" : "Run Construction Analysis"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (roofDisabled) return;
+                    onRoofAnalysis();
+                  }}
+                  disabled={roofDisabled}
+                  className={roofButtonClasses}
+                  title={roofTitle}
+                >
+                  {roofAnalysisActive ? "Roof Analysis Active" : "Run Roof Analysis"}
+                </button>
+              </div>
+              {overlaysDisabledMessage && (
+                <p className="text-xs text-gray-500">{overlaysDisabledMessage}</p>
+              )}
+              {!overlaysDisabledMessage && !isSatelliteView && (
+                <p className="text-xs text-gray-500">Switch to Satellite view to enable roof analysis.</p>
+              )}
             </div>
           </div>
         )}

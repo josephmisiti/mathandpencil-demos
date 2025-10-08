@@ -19,6 +19,8 @@ export type MapProps = {
   onViewChange?: (view: { center: LatLngLiteral; zoom: number }) => void;
   onRoofAnalysisVisibilityChange?: (visible: boolean) => void;
   roofAnalysisPanelRef?: RefObject<HTMLDivElement | null>;
+  onConstructionAnalysisVisibilityChange?: (visible: boolean) => void;
+  constructionAnalysisPanelRef?: RefObject<HTMLDivElement | null>;
 }
 
 export type MarkerInfoProps = {
