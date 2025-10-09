@@ -130,18 +130,22 @@ def convert_gdb_to_geojson(gdb_path: Path, output_path: Path) -> bool:
             logger.error("Failed to list layers in GDB: %s", result.stderr)
             return False
 
-        # Find the structures layer (usually the one with "Structures" in the name)
+        logger.info("ogrinfo output:\n%s", result.stdout)
+
+        # Find the structures layer - look for lines like "1: LayerName (Geometry Type)"
         layers = []
         for line in result.stdout.split("\n"):
-            if line.startswith("1:") or "Structures" in line:
-                # Extract layer name
-                parts = line.split(":")
-                if len(parts) >= 2:
-                    layer_name = parts[1].strip().split()[0]
+            # Match lines like "1: StructuresLayer (Point)" or "2: SomeLayer (Polygon)"
+            if re.match(r"^\d+:", line):
+                # Extract layer name between the colon and the opening parenthesis
+                match = re.search(r"^\d+:\s+(\S+)", line)
+                if match:
+                    layer_name = match.group(1)
                     layers.append(layer_name)
+                    logger.info("Found layer: %s", layer_name)
 
         if not layers:
-            logger.error("No layers found in GDB")
+            logger.error("No layers found in GDB. Full output: %s", result.stdout)
             return False
 
         # Use the first layer (typically the structures layer)
@@ -178,8 +182,8 @@ def create_pmtiles(geojson_path: Path, output_path: Path, state_code: str) -> bo
         cmd = [
             "tippecanoe",
             "-o", str(output_path),
-            "-Z", "0",  # Min zoom
-            "-z", "16",  # Max zoom
+            "-Z", "18",  # Min zoom
+            "-z", "21",  # Max zoom
             "-l", f"fema_structures_{state_code.lower()}",  # Layer name
             "--drop-densest-as-needed",  # Drop features to stay under tile size limit
             "--extend-zooms-if-still-dropping",
@@ -329,17 +333,26 @@ def main(*args: str) -> None:
     zip_name: Optional[str] = None
     run_tag: Optional[str] = None
 
-    for arg in args:
-        if arg.startswith("--zip="):
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg == "--zip" and i + 1 < len(args):
+            zip_name = args[i + 1]
+            i += 2
+        elif arg.startswith("--zip="):
             zip_name = arg.split("=", 1)[1]
+            i += 1
         elif arg.startswith("run_tag="):
             run_tag = arg.split("=", 1)[1]
+            i += 1
         elif arg.startswith("--"):
             logger.warning("Unknown argument: %s", arg)
+            i += 1
         else:
             # Assume it's a zip name if no flag
             if not zip_name:
                 zip_name = arg
+            i += 1
 
     if not zip_name:
         logger.error("No ZIP file specified. Usage: modal run process_fema_structures.py --zip=raw/Deliverable20250606UT.zip")
