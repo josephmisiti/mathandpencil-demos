@@ -1,8 +1,10 @@
 import { useState, useEffect, useRef } from "react";
 import { APIProvider } from "@vis.gl/react-google-maps";
+import { SignedIn, SignedOut } from "@clerk/clerk-react";
 import AddressSearch from "./components/AddressSearch";
 import MapView from "./components/MapView";
 import Navigation from "./components/Navigation";
+import SignInPage from "./components/SignInPage";
 import { Location } from "./types/location";
 
 const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "";
@@ -117,51 +119,59 @@ const App = () => {
   };
 
   return (
-    <APIProvider apiKey={GOOGLE_MAPS_API_KEY}>
-      <div className="flex w-screen h-screen">
-        <Navigation />
+    <>
+      <SignedOut>
+        <SignInPage />
+      </SignedOut>
 
-        <div className="relative flex-1">
-          <MapView
-            center={mapCenter}
-            markers={markers}
-            zoom={mapZoom}
-            onViewChange={handleMapViewChange}
-            onRoofAnalysisVisibilityChange={setIsRoofAnalysisActive}
-            roofAnalysisPanelRef={roofPanelContainerRef}
-            onConstructionAnalysisVisibilityChange={
-              setIsConstructionAnalysisActive
-            }
-            constructionAnalysisPanelRef={constructionPanelContainerRef}
-          />
+      <SignedIn>
+        <APIProvider apiKey={GOOGLE_MAPS_API_KEY}>
+          <div className="flex w-screen h-screen">
+            <Navigation />
 
-          <div className="absolute top-4 left-4 z-10 flex h-[calc(100vh-2rem)] w-96 flex-col gap-4">
-            <AddressSearch
-              onLocationSelect={handleLocationSelect}
-              onAddressClear={handleAddressClear}
-              initialAddress={initialAddress}
-              hidePdfUpload={isRoofAnalysisActive || isConstructionAnalysisActive}
-            />
-            <div
-              ref={roofPanelContainerRef}
-              className={
-                isRoofAnalysisActive
-                  ? "flex-1 min-h-0 overflow-y-auto pr-2"
-                  : "hidden"
-              }
-            />
-            <div
-              ref={constructionPanelContainerRef}
-              className={
-                isConstructionAnalysisActive
-                  ? "flex-1 min-h-0 overflow-y-auto pr-2"
-                  : "hidden"
-              }
-            />
+            <div className="relative flex-1">
+              <MapView
+                center={mapCenter}
+                markers={markers}
+                zoom={mapZoom}
+                onViewChange={handleMapViewChange}
+                onRoofAnalysisVisibilityChange={setIsRoofAnalysisActive}
+                roofAnalysisPanelRef={roofPanelContainerRef}
+                onConstructionAnalysisVisibilityChange={
+                  setIsConstructionAnalysisActive
+                }
+                constructionAnalysisPanelRef={constructionPanelContainerRef}
+              />
+
+              <div className="absolute top-4 left-4 z-10 flex h-[calc(100vh-2rem)] w-96 flex-col gap-4">
+                <AddressSearch
+                  onLocationSelect={handleLocationSelect}
+                  onAddressClear={handleAddressClear}
+                  initialAddress={initialAddress}
+                  hidePdfUpload={isRoofAnalysisActive || isConstructionAnalysisActive}
+                />
+                <div
+                  ref={roofPanelContainerRef}
+                  className={
+                    isRoofAnalysisActive
+                      ? "flex-1 min-h-0 overflow-y-auto pr-2"
+                      : "hidden"
+                  }
+                />
+                <div
+                  ref={constructionPanelContainerRef}
+                  className={
+                    isConstructionAnalysisActive
+                      ? "flex-1 min-h-0 overflow-y-auto pr-2"
+                      : "hidden"
+                  }
+                />
+              </div>
+            </div>
           </div>
-        </div>
-      </div>
-    </APIProvider>
+        </APIProvider>
+      </SignedIn>
+    </>
   );
 };
 

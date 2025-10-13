@@ -1,4 +1,4 @@
-import { SignedIn, SignedOut, SignInButton, UserButton } from "@clerk/clerk-react";
+import { SignedIn, UserButton } from "@clerk/clerk-react";
 import { Shell } from "lucide-react";
 import { COLORS } from "../constants/colors";
 
@@ -29,13 +29,6 @@ export default function Navigation() {
             }}
           />
         </SignedIn>
-        <SignedOut>
-          <SignInButton mode="modal">
-            <button className="w-full px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-md transition-colors">
-              Sign In
-            </button>
-          </SignInButton>
-        </SignedOut>
       </div>
     </div>
   );
