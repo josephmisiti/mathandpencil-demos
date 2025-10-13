@@ -1,0 +1,11 @@
+{
+  "git": {
+    "deploymentEnabled": {
+      "main": true
+    }
+  },
+  "buildCommand": "yarn build",
+  "framework": "vite",
+  "installCommand": "yarn install",
+  "outputDirectory": "dist"
+}
