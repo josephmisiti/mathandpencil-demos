@@ -570,6 +570,7 @@ export default function MapView({
         mapTypeId={mapTypeId}
         onMapTypeChange={handleMapTypeChange}
         isSatelliteView={isSatelliteView}
+        isStreetViewActive={streetViewVisible}
         overlaysActive={overlaysActive}
         onRoofAnalysis={openRoofAnalysis}
         onConstructionAnalysis={openConstructionAnalysis}

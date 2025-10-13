@@ -20,6 +20,7 @@ interface MapControlsProps {
   mapTypeId: string;
   onMapTypeChange: (mapTypeId: google.maps.MapTypeId) => void;
   isSatelliteView: boolean;
+  isStreetViewActive: boolean;
   overlaysActive: boolean;
   onRoofAnalysis: () => void;
   onConstructionAnalysis: () => void;
@@ -42,6 +43,7 @@ export default function MapControls({
   mapTypeId,
   onMapTypeChange,
   isSatelliteView,
+  isStreetViewActive,
   overlaysActive,
   onRoofAnalysis,
   onConstructionAnalysis,
@@ -87,10 +89,10 @@ export default function MapControls({
     overlaysActive ? "Disable overlays to run analyses." : ""
   ), [overlaysActive]);
 
-  const constructionDisabled = overlaysActive;
+  const constructionDisabled = overlaysActive || !isStreetViewActive;
   const roofDisabled = overlaysActive || !isSatelliteView;
 
-  const constructionTitle = overlaysDisabledMessage || undefined;
+  const constructionTitle = overlaysDisabledMessage || (isStreetViewActive ? undefined : "Switch to Street View to enable construction analysis.");
   const roofTitle = overlaysDisabledMessage || (isSatelliteView ? undefined : "Switch to Satellite view to enable roof analysis.");
 
   const constructionButtonClasses = `${"w-full rounded-md px-3 py-2 text-sm font-medium transition-colors"} ${
