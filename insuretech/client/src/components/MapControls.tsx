@@ -6,6 +6,7 @@ import {
   categoryColorWithAlpha
 } from "../constants/slosh";
 import { COLORS } from "../constants/colors";
+import { LAYERS_CONFIG } from "../config/layers";
 
 interface MapControlsProps {
   highResEnabled: boolean;
@@ -145,82 +146,89 @@ export default function MapControls({
                 })}
               </div>
             </div>
-            <div className="px-4 py-3">
-              <div className="flex items-center justify-between">
-                <label htmlFor="high-res-toggle" className="text-sm font-medium text-gray-700">
-                  High Res Imagery
-                </label>
-                <button
-                  id="high-res-toggle"
-                  type="button"
-                  onClick={handleToggle}
-                  disabled={isDisabled}
-                  aria-pressed={highResEnabled}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
-                    highResEnabled ? "bg-blue-600" : "bg-gray-300"
-                  } ${isDisabled ? "opacity-60 cursor-not-allowed" : ""}`}
-                >
-                  <span
-                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform duration-200 ${
-                      highResEnabled ? "translate-x-6" : "translate-x-1"
-                    }`}
-                  />
-                </button>
+            {LAYERS_CONFIG.highres && (
+              <div className="px-4 py-3">
+                <div className="flex items-center justify-between">
+                  <label htmlFor="high-res-toggle" className="text-sm font-medium text-gray-700">
+                    High Res Imagery
+                  </label>
+                  <button
+                    id="high-res-toggle"
+                    type="button"
+                    onClick={handleToggle}
+                    disabled={isDisabled}
+                    aria-pressed={highResEnabled}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                      highResEnabled ? "bg-blue-600" : "bg-gray-300"
+                    } ${isDisabled ? "opacity-60 cursor-not-allowed" : ""}`}
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform duration-200 ${
+                        highResEnabled ? "translate-x-6" : "translate-x-1"
+                      }`}
+                    />
+                  </button>
+                </div>
+                {statusMessage && (
+                  <p className="mt-2 text-xs text-gray-500">
+                    {statusMessage}
+                  </p>
+                )}
               </div>
-              {statusMessage && (
-                <p className="mt-2 text-xs text-gray-500">
-                  {statusMessage}
-                </p>
-              )}
-            </div>
-            <div className="px-4 py-3 border-t border-gray-200">
-              <div className="flex items-center justify-between">
-                <label htmlFor="flood-zone-toggle" className="text-sm font-medium text-gray-700">
-                  Flood Zone Overlay
-                </label>
-                <button
-                  id="flood-zone-toggle"
-                  type="button"
-                  onClick={handleFloodToggle}
-                  aria-pressed={floodZoneEnabled}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
-                    floodZoneEnabled ? "bg-blue-600" : "bg-gray-300"
-                  }`}
-                >
-                  <span
-                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform duration-200 ${
-                      floodZoneEnabled ? "translate-x-6" : "translate-x-1"
+            )}
+            {LAYERS_CONFIG.floodzone && (
+              <div className="px-4 py-3 border-t border-gray-200">
+                <div className="flex items-center justify-between">
+                  <label htmlFor="flood-zone-toggle" className="text-sm font-medium text-gray-700">
+                    Flood Zone Overlay
+                  </label>
+                  <button
+                    id="flood-zone-toggle"
+                    type="button"
+                    onClick={handleFloodToggle}
+                    aria-pressed={floodZoneEnabled}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                      floodZoneEnabled ? "bg-blue-600" : "bg-gray-300"
                     }`}
-                  />
-                </button>
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform duration-200 ${
+                        floodZoneEnabled ? "translate-x-6" : "translate-x-1"
+                      }`}
+                    />
+                  </button>
+                </div>
               </div>
-            </div>
+            )}
 
-            <div className="px-4 py-3 border-t border-gray-200">
-              <div className="flex items-center justify-between">
-                <label htmlFor="fema-structures-toggle" className="text-sm font-medium text-gray-700">
-                  FEMA Structures
-                </label>
-                <button
-                  id="fema-structures-toggle"
-                  type="button"
-                  onClick={handleFemaStructuresToggle}
-                  aria-pressed={femaStructuresEnabled}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
-                    femaStructuresEnabled ? "bg-blue-600" : "bg-gray-300"
-                  }`}
-                >
-                  <span
-                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform duration-200 ${
-                      femaStructuresEnabled ? "translate-x-6" : "translate-x-1"
+            {LAYERS_CONFIG.fema && (
+              <div className="px-4 py-3 border-t border-gray-200">
+                <div className="flex items-center justify-between">
+                  <label htmlFor="fema-structures-toggle" className="text-sm font-medium text-gray-700">
+                    FEMA Structures
+                  </label>
+                  <button
+                    id="fema-structures-toggle"
+                    type="button"
+                    onClick={handleFemaStructuresToggle}
+                    aria-pressed={femaStructuresEnabled}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                      femaStructuresEnabled ? "bg-blue-600" : "bg-gray-300"
                     }`}
-                  />
-                </button>
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform duration-200 ${
+                        femaStructuresEnabled ? "translate-x-6" : "translate-x-1"
+                      }`}
+                    />
+                  </button>
+                </div>
               </div>
-            </div>
+            )}
 
-            <div className="px-4 py-3 border-t border-gray-200 space-y-2">
-              <p className="text-sm font-medium text-gray-700">SLOSH Inundation</p>
+            {LAYERS_CONFIG.slosh && (
+              <div className="px-4 py-3 border-t border-gray-200 space-y-2">
+                <p className="text-sm font-medium text-gray-700">SLOSH Inundation</p>
               <div className="space-y-2">
                 {SLOSH_CATEGORIES.map((category) => {
                   const enabled = sloshEnabled[category] ?? false;
@@ -253,6 +261,7 @@ export default function MapControls({
                 })}
               </div>
             </div>
+            )}
 
             <div className="px-4 py-3 border-t border-gray-200 space-y-2">
               <p className="text-sm font-medium text-gray-700">Analysis Tools</p>
