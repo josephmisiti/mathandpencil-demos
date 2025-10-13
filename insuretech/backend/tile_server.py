@@ -65,6 +65,11 @@ PMTILES_VARIANTS: List[Dict[str, str]] = [
         "dataset": "slosh",
         "path": os.path.join(BASE_DIR, "source", "SLOSH_GLOBAL_z0_10.pmtiles"),
     },
+    {
+        "key": "fema_structures_fl",
+        "dataset": "fema_structures",
+        "path": os.path.join(BASE_DIR, "source", "fema_structures_fl_20251008.pmtiles"),
+    },
 ]
 
 # Global catalogue of loaded PMTiles variants indexed by their key.
@@ -698,6 +703,28 @@ async def get_slosh_tile(z: int, x: int, y: int):
         return Response(content=tile_data, headers=headers)
     except Exception as e:
         print(f"Error serving SLOSH tile {z}/{x}/{y}: {e}")
+        traceback.print_exc()
+        return Response(status_code=500, content=f"Error serving tile: {e}")
+
+@app.get("/tiles/fema_structures/{z}/{x}/{y}", response_class=Response)
+async def get_fema_structures_tile(z: int, x: int, y: int):
+    """Get FEMA Structures tile from the PMTiles file."""
+    try:
+        tile_data, content_type = get_tile_data(z, x, y, dataset="fema_structures")
+        if tile_data is None:
+            return Response(status_code=204)
+
+        headers = {
+            "Cache-Control": "public, max-age=86400",
+            "Content-Type": "application/vnd.mapbox-vector-tile",
+        }
+
+        if tile_data.startswith(b"\x1f\x8b"):
+            headers["Content-Encoding"] = "gzip"
+
+        return Response(content=tile_data, headers=headers)
+    except Exception as e:
+        print(f"Error serving FEMA structures tile {z}/{x}/{y}: {e}")
         traceback.print_exc()
         return Response(status_code=500, content=f"Error serving tile: {e}")
 

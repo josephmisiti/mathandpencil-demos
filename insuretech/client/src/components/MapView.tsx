@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Map, Marker, InfoWindow } from "@vis.gl/react-google-maps";
-import { DeckGLOverlay } from "@deck.gl/google-maps";
+// import { DeckGLOverlay } from "@deck.gl/google-maps";
 import { MapProps, Location } from "../types/location";
 import MarkerInfo from "./MarkerInfo";
 import MapControls from "./MapControls";
@@ -8,6 +8,7 @@ import { useEagleViewImagery } from "../hooks/useEagleViewImagery";
 import { EagleViewOverlay } from "./EagleViewOverlay";
 import FloodZoneOverlay from "./FloodZoneOverlay";
 import SloshOverlay from "./SloshOverlay";
+import FemaStructuresOverlay from "./FemaStructuresOverlay";
 import FloodZoneLegend from "./FloodZoneLegend";
 import SloshLegend from "./SloshLegend";
 import MeasurementPolygon from "./MeasurementPolygon";
@@ -29,15 +30,16 @@ export default function MapView({
   const [selectedMarker, setSelectedMarker] = useState<Location | null>(null);
   const [highResEnabled, setHighResEnabled] = useState(false);
   const [floodZoneEnabled, setFloodZoneEnabled] = useState(false);
-  const [sloshEnabled, setSloshEnabled] = useState<Record<SloshCategory, boolean>>(
-    () => {
-      const initial = {} as Record<SloshCategory, boolean>;
-      SLOSH_CATEGORIES.forEach((category) => {
-        initial[category] = false;
-      });
-      return initial;
-    }
-  );
+  const [femaStructuresEnabled, setFemaStructuresEnabled] = useState(false);
+  const [sloshEnabled, setSloshEnabled] = useState<
+    Record<SloshCategory, boolean>
+  >(() => {
+    const initial = {} as Record<SloshCategory, boolean>;
+    SLOSH_CATEGORIES.forEach((category) => {
+      initial[category] = false;
+    });
+    return initial;
+  });
   const [highResErrorMessage, setHighResErrorMessage] = useState<string | null>(
     null
   );
@@ -51,26 +53,31 @@ export default function MapView({
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapInstanceRef = useRef<google.maps.Map | null>(null);
   const streetViewRef = useRef<google.maps.StreetViewPanorama | null>(null);
-  const [contextMenu, setContextMenu] = useState<
-    | null
-    | {
-        latLng: google.maps.LatLngLiteral;
-        position: { x: number; y: number };
-      }
-  >(null);
+  const [contextMenu, setContextMenu] = useState<null | {
+    latLng: google.maps.LatLngLiteral;
+    position: { x: number; y: number };
+  }>(null);
   const [measureMode, setMeasureMode] = useState(false);
-  const [polygonPoints, setPolygonPoints] = useState<google.maps.LatLngLiteral[]>([]);
+  const [polygonPoints, setPolygonPoints] = useState<
+    google.maps.LatLngLiteral[]
+  >([]);
   const [polygonArea, setPolygonArea] = useState<number | null>(null);
   const [distanceMode, setDistanceMode] = useState(false);
-  const [distancePoints, setDistancePoints] = useState<google.maps.LatLngLiteral[]>([]);
+  const [distancePoints, setDistancePoints] = useState<
+    google.maps.LatLngLiteral[]
+  >([]);
   const [distance, setDistance] = useState<number | null>(null);
   const [roofAnalysisVisible, setRoofAnalysisVisible] = useState(false);
   const [roofAnalysisOverlay, setRoofAnalysisOverlay] = useState(false);
-  const [constructionAnalysisVisible, setConstructionAnalysisVisible] = useState(false);
-  const [constructionAnalysisOverlay, setConstructionAnalysisOverlay] = useState(false);
+  const [constructionAnalysisVisible, setConstructionAnalysisVisible] =
+    useState(false);
+  const [constructionAnalysisOverlay, setConstructionAnalysisOverlay] =
+    useState(false);
   const [mapTypeId, setMapTypeId] = useState<string>("roadmap");
   const [streetViewVisible, setStreetViewVisible] = useState(false);
-  const streetViewListenerRef = useRef<google.maps.MapsEventListener | null>(null);
+  const streetViewListenerRef = useRef<google.maps.MapsEventListener | null>(
+    null
+  );
 
   const isSatelliteView = mapTypeId === "satellite" || mapTypeId === "hybrid";
 
@@ -94,7 +101,7 @@ export default function MapView({
     () => SLOSH_CATEGORIES.some((category) => sloshEnabled[category]),
     [sloshEnabled]
   );
-  const overlaysActive = floodZoneEnabled || sloshActive;
+  const overlaysActive = floodZoneEnabled || sloshActive || femaStructuresEnabled;
 
   const exitStreetView = useCallback(() => {
     const streetView = streetViewRef.current;
@@ -110,7 +117,8 @@ export default function MapView({
     }
 
     const currentType = map.getMapTypeId?.();
-    const isAlreadySatellite = currentType === "satellite" || currentType === "hybrid";
+    const isAlreadySatellite =
+      currentType === "satellite" || currentType === "hybrid";
     if (isAlreadySatellite) {
       return;
     }
@@ -170,18 +178,27 @@ export default function MapView({
     setConstructionAnalysisOverlay(false);
   }, []);
 
-  const getLatLngLiteral = useCallback((value: google.maps.LatLngLiteral | google.maps.LatLng | null | undefined) => {
-    if (!value) return null;
-    if (typeof (value as google.maps.LatLngLiteral).lat === "number") {
-      return value as google.maps.LatLngLiteral;
-    }
-    const latLng = value as google.maps.LatLng;
-    return { lat: latLng.lat(), lng: latLng.lng() };
-  }, []);
+  const getLatLngLiteral = useCallback(
+    (
+      value: google.maps.LatLngLiteral | google.maps.LatLng | null | undefined
+    ) => {
+      if (!value) return null;
+      if (typeof (value as google.maps.LatLngLiteral).lat === "number") {
+        return value as google.maps.LatLngLiteral;
+      }
+      const latLng = value as google.maps.LatLng;
+      return { lat: latLng.lat(), lng: latLng.lng() };
+    },
+    []
+  );
 
   const openContextMenu = useCallback(
     (
-      latLngInput: google.maps.LatLngLiteral | google.maps.LatLng | null | undefined,
+      latLngInput:
+        | google.maps.LatLngLiteral
+        | google.maps.LatLng
+        | null
+        | undefined,
       domEvent?: MouseEvent | PointerEvent
     ) => {
       const latLng = getLatLngLiteral(latLngInput);
@@ -251,7 +268,7 @@ export default function MapView({
         EagleViewOverlay({
           id: "eagleview-layer",
           imagery: overlayImagery,
-          visible: highResEnabled,
+          visible: highResEnabled
         })
       );
     }
@@ -259,7 +276,9 @@ export default function MapView({
   }, [overlayImagery, highResEnabled]);
 
   // Calculate polygon area using the shoelace formula
-  const calculatePolygonArea = (points: google.maps.LatLngLiteral[]): number => {
+  const calculatePolygonArea = (
+    points: google.maps.LatLngLiteral[]
+  ): number => {
     if (points.length < 3) return 0;
 
     // Convert degrees to meters using approximate conversion
@@ -271,9 +290,17 @@ export default function MapView({
     let area = 0;
     for (let i = 0; i < points.length; i++) {
       const j = (i + 1) % points.length;
-      const xi = points[i].lng * degToRad * earthRadius * Math.cos(points[i].lat * degToRad);
+      const xi =
+        points[i].lng *
+        degToRad *
+        earthRadius *
+        Math.cos(points[i].lat * degToRad);
       const yi = points[i].lat * degToRad * earthRadius;
-      const xj = points[j].lng * degToRad * earthRadius * Math.cos(points[j].lat * degToRad);
+      const xj =
+        points[j].lng *
+        degToRad *
+        earthRadius *
+        Math.cos(points[j].lat * degToRad);
       const yj = points[j].lat * degToRad * earthRadius;
       area += xi * yj - xj * yi;
     }
@@ -281,17 +308,24 @@ export default function MapView({
   };
 
   // Check if a point is close to the first point (for auto-snap)
-  const isCloseToStart = (point: google.maps.LatLngLiteral, threshold: number = 0.00001): boolean => {
+  const isCloseToStart = (
+    point: google.maps.LatLngLiteral,
+    threshold: number = 0.00001
+  ): boolean => {
     if (polygonPoints.length < 3) return false;
     const startPoint = polygonPoints[0];
     const distance = Math.sqrt(
-      Math.pow(point.lat - startPoint.lat, 2) + Math.pow(point.lng - startPoint.lng, 2)
+      Math.pow(point.lat - startPoint.lat, 2) +
+        Math.pow(point.lng - startPoint.lng, 2)
     );
     return distance < threshold;
   };
 
   // Calculate distance between two points using the Haversine formula
-  const calculateDistance = (point1: google.maps.LatLngLiteral, point2: google.maps.LatLngLiteral): number => {
+  const calculateDistance = (
+    point1: google.maps.LatLngLiteral,
+    point2: google.maps.LatLngLiteral
+  ): number => {
     const earthRadius = 6371000; // meters
     const degToRad = Math.PI / 180;
 
@@ -300,9 +334,12 @@ export default function MapView({
     const deltaLatRad = (point2.lat - point1.lat) * degToRad;
     const deltaLngRad = (point2.lng - point1.lng) * degToRad;
 
-    const a = Math.sin(deltaLatRad / 2) * Math.sin(deltaLatRad / 2) +
-              Math.cos(lat1Rad) * Math.cos(lat2Rad) *
-              Math.sin(deltaLngRad / 2) * Math.sin(deltaLngRad / 2);
+    const a =
+      Math.sin(deltaLatRad / 2) * Math.sin(deltaLatRad / 2) +
+      Math.cos(lat1Rad) *
+        Math.cos(lat2Rad) *
+        Math.sin(deltaLngRad / 2) *
+        Math.sin(deltaLngRad / 2);
 
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
@@ -362,7 +399,13 @@ export default function MapView({
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        console.log("ESC pressed", { measureMode, distanceMode, polygonArea: !!polygonArea, distance: !!distance, contextMenu: !!contextMenu });
+        console.log("ESC pressed", {
+          measureMode,
+          distanceMode,
+          polygonArea: !!polygonArea,
+          distance: !!distance,
+          contextMenu: !!contextMenu
+        });
 
         // Clear completed area measurement
         if (polygonArea !== null) {
@@ -426,7 +469,17 @@ export default function MapView({
     return () => {
       document.removeEventListener("keydown", handler);
     };
-  }, [measureMode, distanceMode, contextMenu, polygonArea, distance, roofAnalysisOverlay, constructionAnalysisOverlay, stopRoofAnalysisOverlay, stopConstructionAnalysisOverlay]);
+  }, [
+    measureMode,
+    distanceMode,
+    contextMenu,
+    polygonArea,
+    distance,
+    roofAnalysisOverlay,
+    constructionAnalysisOverlay,
+    stopRoofAnalysisOverlay,
+    stopConstructionAnalysisOverlay
+  ]);
 
   // Only cleanup polygon data when explicitly requested via ESC or Clear button
   // Don't auto-clear when measureMode becomes false, as we want to show the completed polygon
@@ -446,18 +499,21 @@ export default function MapView({
       if (streetView) {
         setStreetViewVisible(streetView.getVisible());
         streetViewListenerRef.current?.remove();
-        streetViewListenerRef.current = streetView.addListener("visible_changed", () => {
-          const visible = streetView.getVisible();
-          setStreetViewVisible(visible);
-          if (!visible) {
-            stopConstructionAnalysisOverlay();
-            updateConstructionAnalysisVisibility(false);
-            setContextMenu(null);
-          } else {
-            updateRoofAnalysisVisibility(false);
-            setRoofAnalysisOverlay(false);
+        streetViewListenerRef.current = streetView.addListener(
+          "visible_changed",
+          () => {
+            const visible = streetView.getVisible();
+            setStreetViewVisible(visible);
+            if (!visible) {
+              stopConstructionAnalysisOverlay();
+              updateConstructionAnalysisVisibility(false);
+              setContextMenu(null);
+            } else {
+              updateRoofAnalysisVisibility(false);
+              setRoofAnalysisOverlay(false);
+            }
           }
-        });
+        );
       }
 
       if (nextType !== "satellite" && nextType !== "hybrid") {
@@ -472,13 +528,19 @@ export default function MapView({
     ]
   );
 
-  const handleMapTypeIdChanged = useCallback((event: { map: google.maps.Map }) => {
-    syncMapTypeId(event.map);
-  }, [syncMapTypeId]);
+  const handleMapTypeIdChanged = useCallback(
+    (event: { map: google.maps.Map }) => {
+      syncMapTypeId(event.map);
+    },
+    [syncMapTypeId]
+  );
 
-  const handleTilesLoaded = useCallback((event: { map: google.maps.Map }) => {
-    syncMapTypeId(event.map);
-  }, [syncMapTypeId]);
+  const handleTilesLoaded = useCallback(
+    (event: { map: google.maps.Map }) => {
+      syncMapTypeId(event.map);
+    },
+    [syncMapTypeId]
+  );
 
   const handleMapTypeChange = useCallback(
     (nextType: google.maps.MapTypeId) => {
@@ -499,6 +561,8 @@ export default function MapView({
         onHighResToggle={handleHighResToggle}
         floodZoneEnabled={floodZoneEnabled}
         onFloodZoneToggle={setFloodZoneEnabled}
+        femaStructuresEnabled={femaStructuresEnabled}
+        onFemaStructuresToggle={setFemaStructuresEnabled}
         sloshEnabled={sloshEnabled}
         onSloshToggle={(category, enabled) =>
           setSloshEnabled((prev) => ({ ...prev, [category]: enabled }))
@@ -515,7 +579,6 @@ export default function MapView({
         }
         highResLoading={status === "loading"}
         highResError={highResErrorMessage}
-
       />
       <Map
         zoom={mapZoom}
@@ -524,11 +587,11 @@ export default function MapView({
         disableDefaultUI={true}
         zoomControl={true}
         zoomControlOptions={{
-          position: google.maps.ControlPosition.RIGHT_CENTER
+          position: google.maps.ControlPosition.LEFT_CENTER
         }}
         streetViewControl={true}
         streetViewControlOptions={{
-          position: google.maps.ControlPosition.RIGHT_CENTER
+          position: google.maps.ControlPosition.BOTTOM_CENTER
         }}
         mapTypeControl={false}
         mapTypeId={mapTypeId as google.maps.MapTypeId}
@@ -561,13 +624,17 @@ export default function MapView({
               const area = calculatePolygonArea(polygonPoints);
               setPolygonArea(area);
               setMeasureMode(false);
-              console.log(`Polygon area: ${area.toLocaleString()} square meters`);
-              console.log(`Polygon area: ${(area * 0.000247105).toFixed(2)} acres`);
+              console.log(
+                `Polygon area: ${area.toLocaleString()} square meters`
+              );
+              console.log(
+                `Polygon area: ${(area * 0.000247105).toFixed(2)} acres`
+              );
               return;
             }
 
             // Add point to polygon
-            setPolygonPoints(prev => [...prev, clickedLatLng]);
+            setPolygonPoints((prev) => [...prev, clickedLatLng]);
           }
 
           // Handle distance measurement
@@ -596,17 +663,25 @@ export default function MapView({
           const clickedLatLng = event.detail.latLng;
           if (!clickedLatLng) return;
 
-          openContextMenu(clickedLatLng, event.domEvent as MouseEvent | PointerEvent | undefined);
+          openContextMenu(
+            clickedLatLng,
+            event.domEvent as MouseEvent | PointerEvent | undefined
+          );
         }}
       >
-        <DeckGLOverlay layers={layers} />
         <FloodZoneOverlay enabled={floodZoneEnabled} />
+        <FemaStructuresOverlay enabled={femaStructuresEnabled} />
         <SloshOverlay
-          enabledCategories={SLOSH_CATEGORIES.filter((category) => sloshEnabled[category])}
+          enabledCategories={SLOSH_CATEGORIES.filter(
+            (category) => sloshEnabled[category]
+          )}
         />
 
         {/* Render measurement polygon using custom component */}
-        <MeasurementPolygon points={polygonPoints} area={polygonArea ?? undefined} />
+        <MeasurementPolygon
+          points={polygonPoints}
+          area={polygonArea ?? undefined}
+        />
 
         {/* Render distance measurement using custom component */}
         <DistanceMeasurement
@@ -678,15 +753,22 @@ export default function MapView({
                 className="relative pointer-events-auto"
               />
             )}
-            {floodZoneEnabled && <FloodZoneLegend className="relative pointer-events-auto" />}
+            {floodZoneEnabled && (
+              <FloodZoneLegend className="relative pointer-events-auto" />
+            )}
           </div>
         );
       })()}
 
       {/* Area measurement result display - top center */}
       {polygonArea !== null && distance === null && (
-        <div className="absolute left-1/2 z-20 -translate-x-1/2 rounded-md border border-slate-200 bg-white p-3 shadow-lg" style={{ top: '5px' }}>
-          <div className="text-sm font-medium text-slate-700">Area Measurement</div>
+        <div
+          className="absolute left-1/2 z-20 -translate-x-1/2 rounded-md border border-slate-200 bg-white p-3 shadow-lg"
+          style={{ top: "5px" }}
+        >
+          <div className="text-sm font-medium text-slate-700">
+            Area Measurement
+          </div>
           <div className="text-lg font-bold text-slate-900">
             {Math.round(polygonArea).toLocaleString()} m²
           </div>
@@ -710,8 +792,13 @@ export default function MapView({
 
       {/* Distance measurement result display - top center */}
       {distance !== null && polygonArea === null && (
-        <div className="absolute left-1/2 z-20 -translate-x-1/2 rounded-md border border-slate-200 bg-white p-3 shadow-lg" style={{ top: '5px' }}>
-          <div className="text-sm font-medium text-slate-700">Distance Measurement</div>
+        <div
+          className="absolute left-1/2 z-20 -translate-x-1/2 rounded-md border border-slate-200 bg-white p-3 shadow-lg"
+          style={{ top: "5px" }}
+        >
+          <div className="text-sm font-medium text-slate-700">
+            Distance Measurement
+          </div>
           <div className="text-lg font-bold text-slate-900">
             {Math.round(distance)} m
           </div>
@@ -720,7 +807,8 @@ export default function MapView({
           </div>
           {distance >= 1000 && (
             <div className="text-sm text-slate-600">
-              {Math.round(distance / 1000 * 100) / 100} km / {Math.round(distance * 0.000621371 * 100) / 100} mi
+              {Math.round((distance / 1000) * 100) / 100} km /{" "}
+              {Math.round(distance * 0.000621371 * 100) / 100} mi
             </div>
           )}
           <button
@@ -737,11 +825,16 @@ export default function MapView({
 
       {/* Measurement instructions */}
       {measureMode && (
-        <div className="absolute left-1/2 z-20 -translate-x-1/2 rounded-md border border-slate-200 bg-white p-3 shadow-lg" style={{ top: '80px' }}>
+        <div
+          className="absolute left-1/2 z-20 -translate-x-1/2 rounded-md border border-slate-200 bg-white p-3 shadow-lg"
+          style={{ top: "80px" }}
+        >
           <div className="text-sm text-slate-700">
-            {polygonPoints.length === 0 && "Click on the map to start drawing a polygon"}
+            {polygonPoints.length === 0 &&
+              "Click on the map to start drawing a polygon"}
             {polygonPoints.length === 1 && "Continue clicking to add points"}
-            {polygonPoints.length === 2 && "Add at least one more point to create a polygon"}
+            {polygonPoints.length === 2 &&
+              "Add at least one more point to create a polygon"}
             {polygonPoints.length >= 3 && (
               <div>
                 Click near the first point to close the polygon
@@ -760,10 +853,15 @@ export default function MapView({
 
       {/* Distance measurement instructions */}
       {distanceMode && (
-        <div className="absolute left-1/2 z-20 -translate-x-1/2 rounded-md border border-slate-200 bg-white p-3 shadow-lg" style={{ top: '80px' }}>
+        <div
+          className="absolute left-1/2 z-20 -translate-x-1/2 rounded-md border border-slate-200 bg-white p-3 shadow-lg"
+          style={{ top: "80px" }}
+        >
           <div className="text-sm text-slate-700">
-            {distancePoints.length === 0 && "Click on the map to select the first point"}
-            {distancePoints.length === 1 && "Click on the map to select the second point"}
+            {distancePoints.length === 0 &&
+              "Click on the map to select the first point"}
+            {distancePoints.length === 1 &&
+              "Click on the map to select the second point"}
             <div className="text-xs text-slate-500 mt-1 border-t pt-1">
               Press ESC to cancel
             </div>
@@ -793,110 +891,121 @@ export default function MapView({
           )}
 
           {/* Show Measure area option when no layers are enabled */}
-          {!floodZoneEnabled && !SLOSH_CATEGORIES.some(category => sloshEnabled[category]) && (
-            <>
-              {!measureMode && !distanceMode && (
-                <>
+          {!floodZoneEnabled &&
+            !SLOSH_CATEGORIES.some((category) => sloshEnabled[category]) && (
+              <>
+                {!measureMode && !distanceMode && (
+                  <>
+                    <button
+                      className="block w-full px-4 py-2 text-left text-sm text-slate-600 hover:bg-slate-100"
+                      onClick={() => {
+                        setMeasureMode(true);
+                        setPolygonPoints([]);
+                        setPolygonArea(null);
+                        setContextMenu(null);
+                      }}
+                    >
+                      📐 Measure area
+                    </button>
+                    <button
+                      className="block w-full px-4 py-2 text-left text-sm text-slate-600 hover:bg-slate-100"
+                      onClick={() => {
+                        setDistanceMode(true);
+                        setDistancePoints([]);
+                        setDistance(null);
+                        setContextMenu(null);
+                      }}
+                    >
+                      📏 Measure distance
+                    </button>
+                    <button
+                      className="block w-full px-4 py-2 text-left text-sm text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:text-slate-400"
+                      disabled={!isSatelliteView}
+                      onClick={() => {
+                        if (!isSatelliteView) {
+                          return;
+                        }
+                        openRoofAnalysis();
+                        setContextMenu(null);
+                      }}
+                      title={
+                        isSatelliteView
+                          ? undefined
+                          : "Switch to Satellite view to use roof analysis"
+                      }
+                    >
+                      🏠 Roof Analysis
+                    </button>
+                    <button
+                      className="block w-full px-4 py-2 text-left text-sm text-slate-600 hover:bg-slate-100"
+                      onClick={() => {
+                        openConstructionAnalysis();
+                        setContextMenu(null);
+                      }}
+                    >
+                      🏢 Construction Analysis
+                    </button>
+                    {!isSatelliteView && (
+                      <div className="px-4 pb-1 pt-1 text-xs text-slate-400">
+                        Switch to Satellite map view to enable roof analysis
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {measureMode && (
+                  <>
+                    <button
+                      className="block w-full px-4 py-2 text-left text-sm text-slate-600 hover:bg-slate-100"
+                      onClick={() => {
+                        setMeasureMode(false);
+                        setPolygonPoints([]);
+                        setPolygonArea(null);
+                        setContextMenu(null);
+                      }}
+                    >
+                      ❌ Cancel area measurement
+                    </button>
+
+                    {polygonPoints.length >= 3 && (
+                      <button
+                        className="block w-full px-4 py-2 text-left text-sm text-slate-600 hover:bg-slate-100"
+                        onClick={() => {
+                          const area = calculatePolygonArea(polygonPoints);
+                          setPolygonArea(area);
+                          setMeasureMode(false);
+                          setContextMenu(null);
+                          console.log(
+                            `Polygon area: ${area.toLocaleString()} square meters`
+                          );
+                          console.log(
+                            `Polygon area: ${(area * 0.000247105).toFixed(
+                              2
+                            )} acres`
+                          );
+                        }}
+                      >
+                        ✅ Finish area measurement
+                      </button>
+                    )}
+                  </>
+                )}
+
+                {distanceMode && (
                   <button
                     className="block w-full px-4 py-2 text-left text-sm text-slate-600 hover:bg-slate-100"
                     onClick={() => {
-                      setMeasureMode(true);
-                      setPolygonPoints([]);
-                      setPolygonArea(null);
-                      setContextMenu(null);
-                    }}
-                  >
-                    📐 Measure area
-                  </button>
-                  <button
-                    className="block w-full px-4 py-2 text-left text-sm text-slate-600 hover:bg-slate-100"
-                    onClick={() => {
-                      setDistanceMode(true);
+                      setDistanceMode(false);
                       setDistancePoints([]);
                       setDistance(null);
                       setContextMenu(null);
                     }}
                   >
-                    📏 Measure distance
+                    ❌ Cancel distance measurement
                   </button>
-                  <button
-                    className="block w-full px-4 py-2 text-left text-sm text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:text-slate-400"
-                    disabled={!isSatelliteView}
-                    onClick={() => {
-                      if (!isSatelliteView) {
-                        return;
-                      }
-                      openRoofAnalysis();
-                      setContextMenu(null);
-                    }}
-                    title={isSatelliteView ? undefined : "Switch to Satellite view to use roof analysis"}
-                  >
-                    🏠 Roof Analysis
-                  </button>
-                  <button
-                    className="block w-full px-4 py-2 text-left text-sm text-slate-600 hover:bg-slate-100"
-                    onClick={() => {
-                      openConstructionAnalysis();
-                      setContextMenu(null);
-                    }}
-                  >
-                    🏢 Construction Analysis
-                  </button>
-                  {!isSatelliteView && (
-                    <div className="px-4 pb-1 pt-1 text-xs text-slate-400">
-                      Switch to Satellite map view to enable roof analysis
-                    </div>
-                  )}
-                </>
-              )}
-
-              {measureMode && (
-                <>
-                  <button
-                    className="block w-full px-4 py-2 text-left text-sm text-slate-600 hover:bg-slate-100"
-                    onClick={() => {
-                      setMeasureMode(false);
-                      setPolygonPoints([]);
-                      setPolygonArea(null);
-                      setContextMenu(null);
-                    }}
-                  >
-                    ❌ Cancel area measurement
-                  </button>
-
-                  {polygonPoints.length >= 3 && (
-                    <button
-                      className="block w-full px-4 py-2 text-left text-sm text-slate-600 hover:bg-slate-100"
-                      onClick={() => {
-                        const area = calculatePolygonArea(polygonPoints);
-                        setPolygonArea(area);
-                        setMeasureMode(false);
-                        setContextMenu(null);
-                        console.log(`Polygon area: ${area.toLocaleString()} square meters`);
-                        console.log(`Polygon area: ${(area * 0.000247105).toFixed(2)} acres`);
-                      }}
-                    >
-                      ✅ Finish area measurement
-                    </button>
-                  )}
-                </>
-              )}
-
-              {distanceMode && (
-                <button
-                  className="block w-full px-4 py-2 text-left text-sm text-slate-600 hover:bg-slate-100"
-                  onClick={() => {
-                    setDistanceMode(false);
-                    setDistancePoints([]);
-                    setDistance(null);
-                    setContextMenu(null);
-                  }}
-                >
-                  ❌ Cancel distance measurement
-                </button>
-              )}
-            </>
-          )}
+                )}
+              </>
+            )}
         </div>
       )}
     </div>

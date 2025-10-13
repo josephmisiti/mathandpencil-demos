@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { APIProvider } from "@vis.gl/react-google-maps";
 import AddressSearch from "./components/AddressSearch";
 import MapView from "./components/MapView";
+import Navigation from "./components/Navigation";
 import { Location } from "./types/location";
 
 const GOOGLE_MAPS_API_KEY = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || "";
@@ -14,13 +15,14 @@ const DEFAULT_CENTER: Location = {
 
 const DEFAULT_ZOOM = 12;
 
-function App() {
+const App = () => {
   const [mapCenter, setMapCenter] = useState<Location>(DEFAULT_CENTER);
   const [markers, setMarkers] = useState<Location[]>([]);
   const [initialAddress, setInitialAddress] = useState("");
   const [mapZoom, setMapZoom] = useState<number>(DEFAULT_ZOOM);
   const [isRoofAnalysisActive, setIsRoofAnalysisActive] = useState(false);
-  const [isConstructionAnalysisActive, setIsConstructionAnalysisActive] = useState(false);
+  const [isConstructionAnalysisActive, setIsConstructionAnalysisActive] =
+    useState(false);
   const roofPanelContainerRef = useRef<HTMLDivElement | null>(null);
   const constructionPanelContainerRef = useRef<HTMLDivElement | null>(null);
 
@@ -116,37 +118,51 @@ function App() {
 
   return (
     <APIProvider apiKey={GOOGLE_MAPS_API_KEY}>
-      <div className="relative w-screen h-screen">
-        <MapView
-          center={mapCenter}
-          markers={markers}
-          zoom={mapZoom}
-          onViewChange={handleMapViewChange}
-          onRoofAnalysisVisibilityChange={setIsRoofAnalysisActive}
-          roofAnalysisPanelRef={roofPanelContainerRef}
-          onConstructionAnalysisVisibilityChange={setIsConstructionAnalysisActive}
-          constructionAnalysisPanelRef={constructionPanelContainerRef}
-        />
+      <div className="flex w-screen h-screen">
+        <Navigation />
 
-        <div className="absolute top-4 left-4 z-10 flex h-[calc(100vh-2rem)] w-96 flex-col gap-4">
-          <AddressSearch
-            onLocationSelect={handleLocationSelect}
-            onAddressClear={handleAddressClear}
-            initialAddress={initialAddress}
-            hidePdfUpload={isRoofAnalysisActive || isConstructionAnalysisActive}
+        <div className="relative flex-1">
+          <MapView
+            center={mapCenter}
+            markers={markers}
+            zoom={mapZoom}
+            onViewChange={handleMapViewChange}
+            onRoofAnalysisVisibilityChange={setIsRoofAnalysisActive}
+            roofAnalysisPanelRef={roofPanelContainerRef}
+            onConstructionAnalysisVisibilityChange={
+              setIsConstructionAnalysisActive
+            }
+            constructionAnalysisPanelRef={constructionPanelContainerRef}
           />
-          <div
-            ref={roofPanelContainerRef}
-            className={isRoofAnalysisActive ? "flex-1 min-h-0 overflow-y-auto pr-2" : "hidden"}
-          />
-          <div
-            ref={constructionPanelContainerRef}
-            className={isConstructionAnalysisActive ? "flex-1 min-h-0 overflow-y-auto pr-2" : "hidden"}
-          />
+
+          <div className="absolute top-4 left-4 z-10 flex h-[calc(100vh-2rem)] w-96 flex-col gap-4">
+            <AddressSearch
+              onLocationSelect={handleLocationSelect}
+              onAddressClear={handleAddressClear}
+              initialAddress={initialAddress}
+              hidePdfUpload={isRoofAnalysisActive || isConstructionAnalysisActive}
+            />
+            <div
+              ref={roofPanelContainerRef}
+              className={
+                isRoofAnalysisActive
+                  ? "flex-1 min-h-0 overflow-y-auto pr-2"
+                  : "hidden"
+              }
+            />
+            <div
+              ref={constructionPanelContainerRef}
+              className={
+                isConstructionAnalysisActive
+                  ? "flex-1 min-h-0 overflow-y-auto pr-2"
+                  : "hidden"
+              }
+            />
+          </div>
         </div>
       </div>
     </APIProvider>
   );
-}
+};
 
 export default App;

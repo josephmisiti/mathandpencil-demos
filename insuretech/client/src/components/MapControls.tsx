@@ -5,12 +5,15 @@ import {
   SloshCategory,
   categoryColorWithAlpha
 } from "../constants/slosh";
+import { COLORS } from "../constants/colors";
 
 interface MapControlsProps {
   highResEnabled: boolean;
   onHighResToggle: (enabled: boolean) => void;
   floodZoneEnabled: boolean;
   onFloodZoneToggle: (enabled: boolean) => void;
+  femaStructuresEnabled: boolean;
+  onFemaStructuresToggle: (enabled: boolean) => void;
   sloshEnabled: Partial<Record<SloshCategory, boolean>>;
   onSloshToggle: (category: SloshCategory, enabled: boolean) => void;
   mapTypeId: string;
@@ -31,6 +34,8 @@ export default function MapControls({
   onHighResToggle,
   floodZoneEnabled,
   onFloodZoneToggle,
+  femaStructuresEnabled,
+  onFemaStructuresToggle,
   sloshEnabled,
   onSloshToggle,
   mapTypeId,
@@ -73,6 +78,10 @@ export default function MapControls({
     onFloodZoneToggle(!floodZoneEnabled);
   };
 
+  const handleFemaStructuresToggle = () => {
+    onFemaStructuresToggle(!femaStructuresEnabled);
+  };
+
   const overlaysDisabledMessage = useMemo(() => (
     overlaysActive ? "Disable overlays to run analyses." : ""
   ), [overlaysActive]);
@@ -93,7 +102,7 @@ export default function MapControls({
 
   return (
     <div className="absolute top-4 right-4 z-20">
-      <div className="bg-white rounded-lg shadow-lg border border-gray-200 min-w-64">
+      <div className={`${COLORS.panelBackground} ${COLORS.panelRounded} ${COLORS.panelShadow} border ${COLORS.panelBorder} min-w-64`}>
         <button
           onClick={() => setIsOpen(!isOpen)}
           className="w-full px-4 py-3 text-left font-medium text-gray-700 hover:bg-gray-50 rounded-t-lg flex items-center justify-between"
@@ -181,6 +190,29 @@ export default function MapControls({
                   <span
                     className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform duration-200 ${
                       floodZoneEnabled ? "translate-x-6" : "translate-x-1"
+                    }`}
+                  />
+                </button>
+              </div>
+            </div>
+
+            <div className="px-4 py-3 border-t border-gray-200">
+              <div className="flex items-center justify-between">
+                <label htmlFor="fema-structures-toggle" className="text-sm font-medium text-gray-700">
+                  FEMA Structures
+                </label>
+                <button
+                  id="fema-structures-toggle"
+                  type="button"
+                  onClick={handleFemaStructuresToggle}
+                  aria-pressed={femaStructuresEnabled}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                    femaStructuresEnabled ? "bg-blue-600" : "bg-gray-300"
+                  }`}
+                >
+                  <span
+                    className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform duration-200 ${
+                      femaStructuresEnabled ? "translate-x-6" : "translate-x-1"
                     }`}
                   />
                 </button>
