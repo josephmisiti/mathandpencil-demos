@@ -555,7 +555,7 @@ export default function MapView({
   );
 
   return (
-    <div ref={mapContainerRef} className="relative h-screen w-screen">
+    <div ref={mapContainerRef} className="relative h-screen w-full">
       <MapControls
         highResEnabled={highResEnabled}
         onHighResToggle={handleHighResToggle}
