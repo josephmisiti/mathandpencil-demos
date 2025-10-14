@@ -3,7 +3,6 @@ import { TileLayer } from "@deck.gl/geo-layers";
 import { BitmapLayer } from "@deck.gl/layers";
 import { useMap } from "@vis.gl/react-google-maps";
 import { useEffect, useState } from "react";
-import { getEagleViewBearerToken } from "../services/eagleViewAuth";
 import { ImageResource } from "../services/eagleViewDiscovery";
 import { ObliqueImageOverlay } from "./ObliqueImageOverlay";
 
@@ -13,31 +12,19 @@ const apiToken = (import.meta.env.VITE_ACORD_API_TOKEN || "").trim();
 type EagleViewOverlayProps = {
   enabled: boolean;
   imageResource: ImageResource | null;
+  bearerToken: string | null;
 };
 
 export const EagleViewOverlay = ({
   enabled,
-  imageResource
+  imageResource,
+  bearerToken
 }: EagleViewOverlayProps) => {
   const map = useMap();
   const [overlay, setOverlay] = useState<GoogleMapsOverlay | null>(null);
-  const [bearerToken, setBearerToken] = useState<string | null>(null);
 
   // Determine if this is an oblique image (must check before any hooks)
   const isOblique = enabled && imageResource?.type === "oblique";
-
-  useEffect(() => {
-    if (!enabled) {
-      setBearerToken(null);
-      return;
-    }
-
-    getEagleViewBearerToken().then((token) => {
-      if (token) {
-        setBearerToken(token);
-      }
-    });
-  }, [enabled]);
 
   useEffect(() => {
     if (!map) {

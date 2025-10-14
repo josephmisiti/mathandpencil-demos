@@ -11,6 +11,7 @@ type CachedToken = {
 };
 
 let tokenCache: CachedToken | null = null;
+let inflightRequest: Promise<string | null> | null = null;
 
 const authUrl = (import.meta.env.VITE_EAGLEVIEW_AUTH_URL || "").trim();
 const apiToken = (import.meta.env.VITE_ACORD_API_TOKEN || "").trim();
@@ -26,32 +27,42 @@ export const getEagleViewBearerToken = async (): Promise<string | null> => {
     return tokenCache.token;
   }
 
-  try {
-    const response = await fetch(`${authUrl}/api/v1/eagleview/token`, {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${apiToken}`
-      }
-    });
-
-    if (!response.ok) {
-      throw new Error(`Failed to fetch EagleView token: ${response.status}`);
-    }
-
-    const data: EagleViewTokenResponse = await response.json();
-
-    const expiresAt = now + (data.expires_in - 60) * 1000;
-
-    tokenCache = {
-      token: data.access_token,
-      expiresAt
-    };
-
-    return data.access_token;
-  } catch (error) {
-    console.error("Error fetching EagleView bearer token:", error);
-    return null;
+  if (inflightRequest) {
+    return inflightRequest;
   }
+
+  inflightRequest = (async () => {
+    try {
+      const response = await fetch(`${authUrl}/api/v1/eagleview/token`, {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${apiToken}`
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch EagleView token: ${response.status}`);
+      }
+
+      const data: EagleViewTokenResponse = await response.json();
+
+      const expiresAt = now + (data.expires_in - 60) * 1000;
+
+      tokenCache = {
+        token: data.access_token,
+        expiresAt
+      };
+
+      return data.access_token;
+    } catch (error) {
+      console.error("Error fetching EagleView bearer token:", error);
+      return null;
+    } finally {
+      inflightRequest = null;
+    }
+  })();
+
+  return inflightRequest;
 };
 
 export const clearTokenCache = () => {

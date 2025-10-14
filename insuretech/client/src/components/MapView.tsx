@@ -42,7 +42,7 @@ export default function MapView({
     useState<DiscoveryResult | null>(null);
   const [selectedImageDirection, setSelectedImageDirection] =
     useState<ImageDirection>("ortho");
-  const [tokenReady, setTokenReady] = useState(false);
+  const [bearerToken, setBearerToken] = useState<string | null>(null);
   const [sloshEnabled, setSloshEnabled] = useState<
     Record<SloshCategory, boolean>
   >(() => {
@@ -394,11 +394,9 @@ export default function MapView({
 
   useEffect(() => {
     getEagleViewBearerToken().then((token) => {
-      if (token) {
-        setTokenReady(true);
-      } else {
+      setBearerToken(token);
+      if (!token) {
         console.warn("Failed to pre-fetch bearer token");
-        setTokenReady(false);
       }
     });
   }, []);
@@ -608,7 +606,7 @@ export default function MapView({
           constructionAnalysisActive={
             constructionAnalysisVisible || constructionAnalysisOverlay
           }
-          highResLoading={!tokenReady}
+          highResLoading={!bearerToken}
           highResError={highResErrorMessage}
           selectedImageDirection={selectedImageDirection}
           onImageDirectionChange={setSelectedImageDirection}
@@ -707,6 +705,7 @@ export default function MapView({
         <EagleViewOverlay
           enabled={highResEnabled}
           imageResource={selectedImageResource}
+          bearerToken={bearerToken}
         />
         <FloodZoneOverlay enabled={floodZoneEnabled} />
         <FemaStructuresOverlay enabled={femaStructuresEnabled} />
