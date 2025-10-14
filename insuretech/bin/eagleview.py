@@ -1,179 +1,207 @@
-import modal
 import os
+import base64
+import requests
 import json
-import logging
-from datetime import UTC, datetime
+from urllib.parse import quote
 
-# --- Configuration ---
-STORAGE_ROOT = "/cache" # This is the mount point for our network file system
-FEMA_BASE_URL = 'https://hazards.fema.gov/nfhlv2/output/State/'
-STFIPS = [
-    '01', '02', '04', '05', '06', '08', '09', '10', '11', '12', '13', '15', '16',
-    '17', '18', '19', '20', '21', '22', '23', '24', '25', '26', '27', '28', '29',
-    '30', '31', '32', '33', '34', '35', '36', '37', '38', '39', '40', '41', '42',
-    '44', '45', '46', '47', '48', '49', '50', '51', '53', '54', '55', '56', '60',
-    '66', '69', '72', '78',
-]
+def get_eagleview_token():
+    """Get EagleView OAuth token using client credentials"""
 
-STFIPS = [ '01' ]
+    client_id = os.environ.get('EAGLEVIEW_CLIENT_ID')
+    client_secret = os.environ.get('EAGLEVIEW_CLIENT_SECRET')
 
-# Define a persistent network file system to store our data across runs.
-storage = modal.NetworkFileSystem.persisted("fema-flood-zone-storage")
+    if not client_id or not client_secret:
+        raise ValueError("EAGLEVIEW_CLIENT_ID and EAGLEVIEW_CLIENT_SECRET environment variables are required")
 
-app = modal.App(
-    "fema-flood-zone-pipeline-v2",
-    # We only need 'requests' now, as we aren't using boto3.
-    image=modal.Image.debian_slim().pip_install("requests"),
-)
+    credentials = f"{client_id}:{client_secret}"
+    encoded_credentials = base64.b64encode(credentials.encode()).decode()
 
-# Set up a logger
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+    url = "https://apicenter.eagleview.com/oauth2/v1/token"
+    headers = {
+        "Authorization": f"Basic {encoded_credentials}",
+        "Content-Type": "application/x-www-form-urlencoded"
+    }
+    data = {
+        "grant_type": "client_credentials"
+    }
 
-# --- Modal Functions ---
+    print(f"Requesting token from {url}...")
 
-@app.function(retries=3)
-def get_manifest_for_fips(fips: str) -> dict:
-    """
-    Fetches the data manifest for a single state FIPS code.
-    This function is unchanged as it doesn't interact with storage.
-    """
-    import requests
-    logger.info(f"Fetching manifest data for FIPS {fips}...")
-    try:
-        url = (
-            f'https://msc.fema.gov/portal/advanceSearch?affiliate=fema&query&'
-            f'selstate={fips}&selcounty={fips}001&selcommunity={fips}001C&'
-            f'searchedCid={fips}001C&method=search'
-        )
-        response = requests.get(url, timeout=30)
-        response.raise_for_status()
+    response = requests.post(url, headers=headers, data=data, timeout=10)
+    response.raise_for_status()
 
-        state_data_list = response.json().get("EFFECTIVE", {}).get("NFHL_STATE_DATA")
-        if not state_data_list or not isinstance(state_data_list, list):
-            raise ValueError(f"Unexpected or missing data for FIPS {fips}")
+    token_data = response.json()
 
-        state_data = state_data_list[0]
-        manifest_item = {
-            "fips": fips,
-            "effective": state_data.get("product_EFFECTIVE_DATE_STRING"),
-            "file_name": state_data.get("product_FILE_PATH"),
-            "file_size": state_data.get("product_FILE_SIZE"),
+    print(f"✓ Token received successfully")
+    print(f"  Token Type: {token_data.get('token_type')}")
+    print(f"  Expires In: {token_data.get('expires_in')} seconds")
+    print(f"  Access Token: {token_data.get('access_token')[:50]}...")
+
+    return token_data
+
+def discover_images(access_token, lat, lng):
+    """Discover available images for a location"""
+
+    url = "https://sandbox.apis.eagleview.com/imagery/v3/discovery/rank/location"
+
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json"
+    }
+
+    buffer = 0.0001
+    min_lng = lng - buffer
+    max_lng = lng + buffer
+    min_lat = lat - buffer
+    max_lat = lat + buffer
+
+    geojson_obj = {
+        "type": "Feature",
+        "geometry": {
+            "type": "Polygon",
+            "coordinates": [[
+                [min_lng, min_lat],
+                [max_lng, min_lat],
+                [max_lng, max_lat],
+                [min_lng, max_lat],
+                [min_lng, min_lat]
+            ]]
+        },
+        "properties": None
+    }
+
+    payload = {
+        "polygon": {
+            "geojson": {
+                "value": json.dumps(geojson_obj),
+                "epsg": "EPSG:4326"
+            }
+        },
+        "view": {
+            "obliques": {
+                "cardinals": {
+                    "north": True,
+                    "east": True,
+                    "south": True,
+                    "west": True
+                }
+            },
+            "orthos": {},
+            "max_images_per_view": 1
+        },
+        "response_props": {
+            "first_published_time": True,
+            "composite": True,
+            "shot_time": True,
+            "calculated_gsd": True,
+            "zoom_range": True,
+            "ground_footprint": True,
+            "look_at": True,
+            "image_resources": {
+                "tilebox": True,
+                "estimated_requested_location": True
+            }
         }
-        
-        for key in ["effective", "file_name", "file_size"]:
-            if not manifest_item[key]:
-                raise ValueError(f"Missing '{key}' in manifest for FIPS {fips}")
-                
-        return manifest_item
+    }
 
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Network error for FIPS {fips}: {e}")
-        raise
-    except (ValueError, KeyError, IndexError) as e:
-        logger.error(f"Data parsing error for FIPS {fips}: {e}")
-        raise
+    print(f"\nDiscovering images for location ({lat}, {lng})...")
+    print(f"Payload: {json.dumps(payload, indent=2)}")
 
-@app.function(
-    timeout=1200,
-    memory=2048,
-    # Mount the network file system at the specified path inside the container.
-    network_file_system=storage,
-)
-def stream_zip_to_storage(manifest_item: dict):
-    """
-    Downloads a data file from FEMA and streams it to the modal.NetworkFileSystem.
-    """
-    import requests
+    response = requests.post(url, headers=headers, json=payload, timeout=30)
 
-    file_name = manifest_item["file_name"]
-    # Define the path on our network storage
-    storage_path = os.path.join(STORAGE_ROOT, "state_raw", file_name)
+    if response.status_code != 200:
+        print(f"Error response: {response.text}")
 
-    # 1. Ensure the target directory exists
-    os.makedirs(os.path.dirname(storage_path), exist_ok=True)
+    response.raise_for_status()
 
-    # 2. Check if the file already exists
-    if os.path.exists(storage_path):
-        logger.warning(f"SKIP: {storage_path} already exists.")
-        return {"fips": manifest_item["fips"], "status": "skipped"}
+    data = response.json()
+    print(f"✓ Found {len(data.get('captures', []))} captures")
 
-    # 3. Stream the download from FEMA directly to the file
-    download_url = f"{FEMA_BASE_URL}{file_name}"
-    logger.info(f"Downloading {download_url} to {storage_path}")
+    return data
 
+def fetch_image_tile(access_token, image_urn, z, x, y, output_path):
+    """Fetch a specific image tile"""
+
+    encoded_urn = quote(image_urn, safe='')
+    url = f"https://sandbox.apis.eagleview.com/imagery/v3/images/{encoded_urn}/tiles/{z}/{x}/{y}"
+
+    headers = {
+        "Authorization": f"Bearer {access_token}"
+    }
+
+    params = {
+        "format": "IMAGE_FORMAT_PNG"
+    }
+
+    print(f"\nFetching tile for URN: {image_urn}, z={z}, x={x}, y={y}...")
+
+    response = requests.get(url, headers=headers, params=params, timeout=30)
+
+    if response.status_code != 200:
+        print(f"Error response: {response.text}")
+
+    response.raise_for_status()
+
+    with open(output_path, 'wb') as f:
+        f.write(response.content)
+
+    print(f"✓ Tile saved to {output_path}")
+    return output_path
+
+if __name__ == "__main__":
     try:
-        with requests.get(download_url, stream=True, timeout=30) as r:
-            r.raise_for_status()
-            with open(storage_path, "wb") as f:
-                for chunk in r.iter_content(chunk_size=8192):
-                    f.write(chunk)
-        logger.info(f"SUCCESS: Downloaded {storage_path}")
-        return {"fips": manifest_item["fips"], "status": "success"}
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Failed to download {download_url}: {e}")
-        # Clean up partially downloaded file on failure
-        if os.path.exists(storage_path):
-            os.remove(storage_path)
-        return {"fips": manifest_item["fips"], "status": "failed", "error": str(e)}
+        lat = 41.250214
+        lng = -95.991634
 
-@app.local_entrypoint()
-def main():
-    """
-    Orchestrates the entire data pipeline using Modal's NetworkFileSystem.
-    """
-    now = datetime.now(UTC)
-    vintage_name = f"v{now.strftime('%Y%m')}"
-    manifest_dir = os.path.join(STORAGE_ROOT, "manifest")
-    manifest_path = os.path.join(manifest_dir, f"{vintage_name}.json")
-    manifest = {}
+        token_data = get_eagleview_token()
+        access_token = token_data['access_token']
 
-    # 1. Build or Get Manifest from the Network File System
-    logger.info("--- Step 1: Building or Getting Manifest ---")
-    
-    # We need to run a remote function to access the network file system.
-    # We'll do this by "touching" it to get access and create the directory.
-    @app.function(network_file_system=storage)
-    def manage_manifest(action: str, path: str, data: dict = None):
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        if action == "read":
-            if os.path.exists(path):
-                with open(path, "r") as f:
-                    return json.load(f)
-            return None
-        elif action == "write":
-            with open(path, "w") as f:
-                json.dump(data, f, indent=2)
-            return data
+        discovery_data = discover_images(access_token, lat, lng)
 
-    existing_manifest = manage_manifest.remote("read", manifest_path)
+        print("\n" + "="*50)
+        print("Discovery Results:")
+        print(json.dumps(discovery_data, indent=2))
+        print("="*50)
 
-    if existing_manifest:
-        logger.info(f"Manifest '{manifest_path}' already exists. Using it.")
-        manifest = existing_manifest
-    else:
-        # Manifest does not exist, so we create it in parallel
-        logger.info(f"Manifest not found. Generating a new one for {vintage_name}...")
-        results = list(get_manifest_for_fips.map(STFIPS))
-        
-        # Convert list of dicts to the desired fips -> data structure
-        manifest = {item.pop("fips"): item for item in results if item}
+        if discovery_data.get('captures'):
+            first_capture = discovery_data['captures'][0]
 
-        # Upload the new manifest
-        logger.info(f"Uploading new manifest to '{manifest_path}'")
-        manage_manifest.remote("write", manifest_path, data=manifest)
+            print("\n" + "="*50)
+            print("Downloading Images")
+            print("="*50)
 
-    # 2. Process Files in Parallel
-    logger.info(f"\n--- Step 2: Processing {len(manifest)} Files in Parallel ---")
-    
-    manifest_items_to_process = [
-        {"fips": fips, **data} for fips, data in manifest.items()
-    ]
-    
-    successful_uploads = 0
-    for result in stream_zip_to_storage.map(manifest_items_to_process, order_outputs=False):
-        if result.get("status") == "success":
-            successful_uploads += 1
+            orthos = first_capture.get('orthos', {})
+            if orthos and orthos.get('images'):
+                ortho_image = orthos['images'][0]
+                image_urn = ortho_image.get('urn')
+                tilebox = ortho_image.get('resources', {}).get('tilebox', {})
 
-    logger.info(f"\n--- Pipeline Complete ---")
-    logger.info(f"Successfully downloaded {successful_uploads} new files to Modal Storage.")
+                if image_urn and tilebox:
+                    z = tilebox.get('z', 22)
+                    x = tilebox.get('left', 0)
+                    y = tilebox.get('top', 0)
+
+                    print(f"\n📸 Ortho Image:")
+                    fetch_image_tile(access_token, image_urn, z, x, y, f"ortho_z{z}_x{x}_y{y}.png")
+
+            obliques = first_capture.get('obliques', {})
+            for direction in ['north', 'east', 'south', 'west']:
+                direction_data = obliques.get(direction, {})
+                if direction_data and direction_data.get('images'):
+                    oblique_image = direction_data['images'][0]
+                    image_urn = oblique_image.get('urn')
+                    tilebox = oblique_image.get('resources', {}).get('tilebox', {})
+
+                    if image_urn and tilebox:
+                        z = tilebox.get('z', 18)
+                        x = tilebox.get('left', 0)
+                        y = tilebox.get('top', 0)
+
+                        print(f"\n📸 Oblique {direction.capitalize()} Image:")
+                        fetch_image_tile(access_token, image_urn, z, x, y, f"oblique_{direction}_z{z}_x{x}_y{y}.png")
+
+    except Exception as e:
+        print(f"✗ Error: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        exit(1)
