@@ -336,6 +336,11 @@ async def tile_proxy(urn: str, z: int, x: int, y: int, token: str = Depends(veri
         print(f"[API] Proxying tile request to {url}")
 
         response = requests.get(url, headers=headers, params=params, timeout=30)
+
+        if response.status_code == 404:
+            print(f"[API] Tile not found (404)")
+            raise HTTPException(status_code=404, detail="Tile not found")
+
         response.raise_for_status()
 
         print(f"[API] Returning tile image, size: {len(response.content)} bytes")
@@ -348,6 +353,12 @@ async def tile_proxy(urn: str, z: int, x: int, y: int, token: str = Depends(veri
             }
         )
 
+    except HTTPException:
+        raise
+    except requests.exceptions.RequestException as e:
+        status_code = getattr(e.response, 'status_code', 500) if hasattr(e, 'response') else 500
+        print(f"[API] Tile request failed with status {status_code}: {str(e)}")
+        raise HTTPException(status_code=status_code, detail=f"Tile request failed: {str(e)}")
     except Exception as e:
         print(f"[API] EXCEPTION: {str(e)}")
         import traceback
