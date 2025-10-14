@@ -3,138 +3,171 @@ import { TileLayer } from "@deck.gl/geo-layers";
 import { BitmapLayer } from "@deck.gl/layers";
 import { useMap } from "@vis.gl/react-google-maps";
 import { useEffect, useState } from "react";
+import { ImageResource } from "../services/eagleViewDiscovery";
+import { ObliqueImageOverlay } from "./ObliqueImageOverlay";
 
-const DEFAULT_EAGLEVIEW_LAYER_ID = "LatestBestResolution";
-const DEFAULT_EAGLEVIEW_STYLE = "default";
-const DEFAULT_EAGLEVIEW_TILE_MATRIX_SET = "GoogleMapsCompatible_9-23";
-const DEFAULT_EAGLEVIEW_FORMAT = "jpeg";
-
-const baseUrl = (import.meta.env.VITE_APP_EAGLEVIEW_BASE_URL || "").trim();
-const apiKey = (import.meta.env.VITE_APP_EAGLEVIEW_API_KEY || "").trim();
+const authUrl = (import.meta.env.VITE_EAGLEVIEW_AUTH_URL || "").trim();
+const apiToken = (import.meta.env.VITE_ACORD_API_TOKEN || "").trim();
 
 type EagleViewOverlayProps = {
   enabled: boolean;
-  layerName?: string;
-  wmtsStyle?: string;
-  wmtsTileMatrixSet?: string;
-  imageFormat?: string;
-  minZoom?: number;
-  maxZoom?: number;
-};
-
-console.info("apiKey:", apiKey);
-
-const getZoomBoundsFromTileMatrixSet = (tileMatrixSet: string) => {
-  if (tileMatrixSet.startsWith("GoogleMapsCompatible")) {
-    return { minZoom: 0, maxZoom: 22 };
-  }
-  return { minZoom: 15, maxZoom: 22 };
+  imageResource: ImageResource | null;
+  bearerToken: string | null;
 };
 
 export const EagleViewOverlay = ({
   enabled,
-  layerName,
-  wmtsStyle,
-  wmtsTileMatrixSet,
-  imageFormat,
-  minZoom,
-  maxZoom
+  imageResource,
+  bearerToken
 }: EagleViewOverlayProps) => {
   const map = useMap();
   const [overlay, setOverlay] = useState<GoogleMapsOverlay | null>(null);
+  const [previousLayerCount, setPreviousLayerCount] = useState(0);
 
-  const resolvedLayerId = layerName ?? DEFAULT_EAGLEVIEW_LAYER_ID;
-  const resolvedStyle = wmtsStyle ?? DEFAULT_EAGLEVIEW_STYLE;
-  const resolvedTileMatrixSet =
-    wmtsTileMatrixSet ?? DEFAULT_EAGLEVIEW_TILE_MATRIX_SET;
-  const resolvedFormat = imageFormat ?? DEFAULT_EAGLEVIEW_FORMAT;
-  const zoomBounds = getZoomBoundsFromTileMatrixSet(resolvedTileMatrixSet);
-  const resolvedMinZoom = minZoom ?? zoomBounds.minZoom;
-  const resolvedMaxZoom = maxZoom ?? zoomBounds.maxZoom;
-
-  const sanitizedUrl = baseUrl.endsWith("/") ? baseUrl.slice(0, -1) : baseUrl;
-
-  const tileBaseUrl = `${sanitizedUrl}/imagery/wmts/v1/visual/tile/${resolvedLayerId}/${resolvedStyle}/${resolvedTileMatrixSet}/{z}/{x}/{y}.${resolvedFormat}`;
-  const dataUrl = apiKey
-    ? `${tileBaseUrl}${
-        tileBaseUrl.includes("?") ? "&" : "?"
-      }api_key=${encodeURIComponent(apiKey)}`
-    : tileBaseUrl;
+  // Determine if this is an oblique image (must check before any hooks)
+  const isOblique = enabled && imageResource?.type === "oblique";
 
   useEffect(() => {
-    if (!map) return;
+    if (!map) {
+      return;
+    }
 
-    console.log("EagleViewOverlay: Creating GoogleMapsOverlay");
-    const instance = new GoogleMapsOverlay({ layers: [] });
-    instance.setMap(map);
-    setOverlay(instance);
+    let instance: GoogleMapsOverlay | null = null;
+    try {
+      instance = new GoogleMapsOverlay({ layers: [] });
+      instance.setMap(map);
+      setOverlay(instance);
+    } catch (error) {
+      console.error(
+        "EagleViewOverlay: Error creating GoogleMapsOverlay",
+        error
+      );
+    }
 
     return () => {
-      console.log("EagleViewOverlay: Cleaning up GoogleMapsOverlay");
-      instance.setMap(null);
+      if (instance) {
+        instance.setMap(null);
+      }
     };
   }, [map]);
 
   useEffect(() => {
     if (!overlay) return;
 
+    const mapZoom = map?.getZoom?.() || 0;
+
     console.log("EagleViewOverlay: Updating layers", {
       enabled,
-      dataUrl,
-      minZoom: resolvedMinZoom,
-      maxZoom: resolvedMaxZoom
+      imageResource: imageResource
+        ? {
+            urn: imageResource.urn,
+            minZoom: imageResource.zoom_range.minimum_zoom_level,
+            maxZoom: imageResource.zoom_range.maximum_zoom_level
+          }
+        : "missing",
+      bearerToken: bearerToken ? "present" : "missing",
+      authUrl,
+      currentMapZoom: mapZoom
     });
 
-    const layers = enabled
-      ? [
-          new TileLayer({
-            id: `eagleview-${resolvedLayerId}-layer`,
-            data: dataUrl,
-            minZoom: resolvedMinZoom,
-            maxZoom: resolvedMaxZoom,
-            tileSize: 256,
-            maxCacheSize: 40,
-            refinementStrategy: "best-available",
-            renderSubLayers: (props) => {
-              const {
-                // @ts-ignore
-                bbox: { west, south, east, north }
-              } = props.tile;
+    if (
+      imageResource &&
+      mapZoom < imageResource.zoom_range.minimum_zoom_level
+    ) {
+      console.warn(
+        `EagleViewOverlay: Current map zoom (${mapZoom}) is below minimum zoom (${imageResource.zoom_range.minimum_zoom_level}). Tiles will not be visible. Zoom in to see imagery.`
+      );
+    }
 
-              return new BitmapLayer({
-                id: `${props.id}-bitmap`,
-                image: props.data,
-                bounds: [west, south, east, north],
-                desaturate: 0,
-                opacity: 1,
-                transparentColor: [0, 0, 0, 0],
-                tintColor: [255, 255, 255]
-              });
-            },
-            loadOptions: {
-              fetch: {
-                method: "GET",
-                headers: {
-                  Accept: `image/${resolvedFormat}`
-                },
-                credentials: "omit"
+    if (
+      imageResource &&
+      mapZoom > imageResource.zoom_range.maximum_zoom_level
+    ) {
+      console.warn(
+        `EagleViewOverlay: Current map zoom (${mapZoom}) is above maximum zoom (${imageResource.zoom_range.maximum_zoom_level}). Tiles will not be visible. Zoom out to see imagery. (Oblique images typically require zoom 5-8 or lower)`
+      );
+    }
+
+    const layers =
+      enabled && bearerToken && imageResource
+        ? [
+            new TileLayer({
+              id: `eagleview-image-${imageResource.urn}`,
+              visible: true,
+              opacity: 1,
+              data: `${
+                authUrl.endsWith("/") ? authUrl.slice(0, -1) : authUrl
+              }/api/v1/eagleview/tiles/${encodeURIComponent(
+                imageResource.urn
+              )}/{z}/{x}/{y}`,
+              minZoom: imageResource.zoom_range.minimum_zoom_level,
+              maxZoom: imageResource.zoom_range.maximum_zoom_level,
+              tileSize: 256,
+              maxCacheSize: 100,
+              maxRequests: 10,
+              refinementStrategy: "no-overlap",
+              onTileLoad: (tile: any) => {
+                console.log("EagleViewOverlay: Tile loaded successfully", tile);
+              },
+              onTileError: (error: any, tile: any) => {
+                console.error("EagleViewOverlay: Tile load error", error, tile);
+              },
+              renderSubLayers: (props) => {
+                const {
+                  // @ts-ignore
+                  bbox: { west, south, east, north }
+                } = props.tile;
+
+                return new BitmapLayer({
+                  id: `${props.id}-bitmap`,
+                  image: props.data,
+                  bounds: [west, south, east, north],
+                  desaturate: 0,
+                  opacity: 1,
+                  transparentColor: [0, 0, 0, 0],
+                  tintColor: [255, 255, 255]
+                });
+              },
+              loadOptions: {
+                fetch: {
+                  headers: {
+                    Authorization: `Bearer ${apiToken}`
+                  }
+                }
               }
-            }
-          })
-        ]
-      : [];
+            })
+          ]
+        : [];
 
-    console.log("EagleViewOverlay: Setting layers", layers.length);
+    console.log(
+      "EagleViewOverlay: Setting layers",
+      layers.length,
+      layers.length > 0 ? "layer created" : "no layers"
+    );
+    if (layers.length > 0) {
+      console.log("EagleViewOverlay: Layer config:", {
+        id: layers[0].id,
+        minZoom: layers[0].props.minZoom,
+        maxZoom: layers[0].props.maxZoom,
+        visible: layers[0].props.visible,
+        opacity: layers[0].props.opacity
+      });
+    }
     overlay.setProps({ layers });
-  }, [
-    overlay,
-    enabled,
-    dataUrl,
-    resolvedLayerId,
-    resolvedMinZoom,
-    resolvedMaxZoom,
-    resolvedFormat
-  ]);
+
+    if (layers.length > previousLayerCount && layers.length > 0 && map) {
+      console.log("EagleViewOverlay: Forcing map redraw - layer added");
+      requestAnimationFrame(() => {
+        map.setCenter(map.getCenter()!);
+      });
+    }
+    setPreviousLayerCount(layers.length);
+  }, [overlay, enabled, imageResource, bearerToken, map, previousLayerCount]);
+
+  // Use ObliqueImageOverlay for oblique images
+  if (isOblique && map && imageResource) {
+    return <ObliqueImageOverlay imageResource={imageResource} map={map} />;
+  }
 
   return null;
 };

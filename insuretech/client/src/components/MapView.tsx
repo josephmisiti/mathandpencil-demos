@@ -15,6 +15,12 @@ import DistanceMeasurement from "./DistanceMeasurement";
 import RoofAnalysis from "./RoofAnalysis";
 import ConstructionAnalysis from "./ConstructionAnalysis";
 import { SLOSH_CATEGORIES, SloshCategory } from "../constants/slosh";
+import {
+  discoverImagesForLocation,
+  DiscoveryResult,
+  ImageDirection
+} from "../services/eagleViewDiscovery";
+import { getEagleViewBearerToken } from "../services/eagleViewAuth";
 
 export default function MapView({
   center,
@@ -32,6 +38,11 @@ export default function MapView({
   const [highResEnabled, setHighResEnabled] = useState(false);
   const [floodZoneEnabled, setFloodZoneEnabled] = useState(false);
   const [femaStructuresEnabled, setFemaStructuresEnabled] = useState(false);
+  const [discoveryResult, setDiscoveryResult] =
+    useState<DiscoveryResult | null>(null);
+  const [selectedImageDirection, setSelectedImageDirection] =
+    useState<ImageDirection>("ortho");
+  const [bearerToken, setBearerToken] = useState<string | null>(null);
   const [sloshEnabled, setSloshEnabled] = useState<
     Record<SloshCategory, boolean>
   >(() => {
@@ -103,7 +114,43 @@ export default function MapView({
     () => SLOSH_CATEGORIES.some((category) => sloshEnabled[category]),
     [sloshEnabled]
   );
-  const overlaysActive = floodZoneEnabled || sloshActive || femaStructuresEnabled;
+  const overlaysActive =
+    floodZoneEnabled || sloshActive || femaStructuresEnabled;
+
+  const availableDirections = useMemo<ImageDirection[]>(() => {
+    if (!discoveryResult) return [];
+    const directions: ImageDirection[] = [];
+    if (discoveryResult.ortho) directions.push("ortho");
+    if (discoveryResult.north) directions.push("north");
+    if (discoveryResult.east) directions.push("east");
+    if (discoveryResult.south) directions.push("south");
+    if (discoveryResult.west) directions.push("west");
+    return directions;
+  }, [discoveryResult]);
+
+  const selectedImageResource = useMemo(() => {
+    if (!discoveryResult) return null;
+    return discoveryResult[selectedImageDirection];
+  }, [discoveryResult, selectedImageDirection]);
+
+  useEffect(() => {
+    if (!selectedImageResource || !mapInstanceRef.current) return;
+
+    const currentZoom = mapInstanceRef.current.getZoom();
+    const { minimum_zoom_level, maximum_zoom_level } =
+      selectedImageResource.zoom_range;
+
+    // Auto-zoom to valid range if current zoom is outside
+    if (currentZoom < minimum_zoom_level || currentZoom > maximum_zoom_level) {
+      const targetZoom = Math.floor(
+        (minimum_zoom_level + maximum_zoom_level) / 2
+      );
+      console.log(
+        `Auto-zooming from ${currentZoom} to ${targetZoom} for selected image direction`
+      );
+      mapInstanceRef.current.setZoom(targetZoom);
+    }
+  }, [selectedImageResource]);
 
   const exitStreetView = useCallback(() => {
     const streetView = streetViewRef.current;
@@ -253,7 +300,6 @@ export default function MapView({
     };
   }, []);
 
-
   // Calculate polygon area using the shoelace formula
   const calculatePolygonArea = (
     points: google.maps.LatLngLiteral[]
@@ -329,6 +375,15 @@ export default function MapView({
     setHighResEnabled(enabled);
     if (enabled) {
       setHighResErrorMessage(null);
+      discoverImagesForLocation(mapCenter.lat, mapCenter.lng).then((result) => {
+        console.log("Discovery result:", result);
+        setDiscoveryResult(result);
+        if (result?.ortho) {
+          setSelectedImageDirection("ortho");
+        }
+      });
+    } else {
+      setDiscoveryResult(null);
     }
   };
 
@@ -336,6 +391,15 @@ export default function MapView({
     setMapZoom(zoom);
     mapZoomRef.current = zoom;
   }, [zoom]);
+
+  useEffect(() => {
+    getEagleViewBearerToken().then((token) => {
+      setBearerToken(token);
+      if (!token) {
+        console.warn("Failed to pre-fetch bearer token");
+      }
+    });
+  }, []);
 
   useEffect(() => {
     const nextCenter = { lat: center.lat, lng: center.lng };
@@ -350,7 +414,6 @@ export default function MapView({
   useEffect(() => {
     mapZoomRef.current = mapZoom;
   }, [mapZoom]);
-
 
   useEffect(() => {
     if (!floodZoneEnabled) {
@@ -543,8 +606,11 @@ export default function MapView({
           constructionAnalysisActive={
             constructionAnalysisVisible || constructionAnalysisOverlay
           }
-          highResLoading={false}
+          highResLoading={!bearerToken}
           highResError={highResErrorMessage}
+          selectedImageDirection={selectedImageDirection}
+          onImageDirectionChange={setSelectedImageDirection}
+          availableDirections={availableDirections}
         />
       )}
       <Map
@@ -636,7 +702,11 @@ export default function MapView({
           );
         }}
       >
-        <EagleViewOverlay enabled={highResEnabled} />
+        <EagleViewOverlay
+          enabled={highResEnabled}
+          imageResource={selectedImageResource}
+          bearerToken={bearerToken}
+        />
         <FloodZoneOverlay enabled={floodZoneEnabled} />
         <FemaStructuresOverlay enabled={femaStructuresEnabled} />
         <SloshOverlay
