@@ -22,6 +22,7 @@ export const EagleViewOverlay = ({
 }: EagleViewOverlayProps) => {
   const map = useMap();
   const [overlay, setOverlay] = useState<GoogleMapsOverlay | null>(null);
+  const [previousLayerCount, setPreviousLayerCount] = useState(0);
 
   // Determine if this is an oblique image (must check before any hooks)
   const isOblique = enabled && imageResource?.type === "oblique";
@@ -153,7 +154,15 @@ export const EagleViewOverlay = ({
       });
     }
     overlay.setProps({ layers });
-  }, [overlay, enabled, imageResource, bearerToken, map]);
+
+    if (layers.length > previousLayerCount && layers.length > 0 && map) {
+      console.log("EagleViewOverlay: Forcing map redraw - layer added");
+      requestAnimationFrame(() => {
+        map.setCenter(map.getCenter()!);
+      });
+    }
+    setPreviousLayerCount(layers.length);
+  }, [overlay, enabled, imageResource, bearerToken, map, previousLayerCount]);
 
   // Use ObliqueImageOverlay for oblique images
   if (isOblique && map && imageResource) {
