@@ -5,6 +5,7 @@ import { useMap } from "@vis.gl/react-google-maps";
 import { useEffect, useState } from "react";
 import { getEagleViewBearerToken } from "../services/eagleViewAuth";
 import { ImageResource } from "../services/eagleViewDiscovery";
+import { ObliqueImageOverlay } from "./ObliqueImageOverlay";
 
 const authUrl = (import.meta.env.VITE_EAGLEVIEW_AUTH_URL || "").trim();
 const apiToken = (import.meta.env.VITE_ACORD_API_TOKEN || "").trim();
@@ -21,6 +22,9 @@ export const EagleViewOverlay = ({
   const map = useMap();
   const [overlay, setOverlay] = useState<GoogleMapsOverlay | null>(null);
   const [bearerToken, setBearerToken] = useState<string | null>(null);
+
+  // Determine if this is an oblique image (must check before any hooks)
+  const isOblique = enabled && imageResource?.type === "oblique";
 
   useEffect(() => {
     if (!enabled) {
@@ -146,6 +150,11 @@ export const EagleViewOverlay = ({
     }
     overlay.setProps({ layers });
   }, [overlay, enabled, imageResource, bearerToken, map]);
+
+  // Use ObliqueImageOverlay for oblique images
+  if (isOblique && map && imageResource) {
+    return <ObliqueImageOverlay imageResource={imageResource} map={map} />;
+  }
 
   return null;
 };
