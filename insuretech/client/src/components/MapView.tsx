@@ -130,6 +130,20 @@ export default function MapView({
     return discoveryResult[selectedImageDirection];
   }, [discoveryResult, selectedImageDirection]);
 
+  useEffect(() => {
+    if (!selectedImageResource || !mapInstanceRef.current) return;
+
+    const currentZoom = mapInstanceRef.current.getZoom();
+    const { minimum_zoom_level, maximum_zoom_level } = selectedImageResource.zoom_range;
+
+    // Auto-zoom to valid range if current zoom is outside
+    if (currentZoom < minimum_zoom_level || currentZoom > maximum_zoom_level) {
+      const targetZoom = Math.floor((minimum_zoom_level + maximum_zoom_level) / 2);
+      console.log(`Auto-zooming from ${currentZoom} to ${targetZoom} for selected image direction`);
+      mapInstanceRef.current.setZoom(targetZoom);
+    }
+  }, [selectedImageResource]);
+
   const exitStreetView = useCallback(() => {
     const streetView = streetViewRef.current;
     if (streetView?.getVisible?.()) {

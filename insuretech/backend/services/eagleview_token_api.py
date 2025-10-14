@@ -4,7 +4,7 @@ import base64
 import time
 import json
 from fastapi import FastAPI, HTTPException, Depends, Body
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -64,6 +64,66 @@ def get_eagleview_token() -> dict:
     except requests.exceptions.RequestException as e:
         print(f"[EAGLEVIEW] Token request failed: {str(e)}")
         return {"error": f"Token request failed: {str(e)}"}
+    except Exception as e:
+        print(f"[EAGLEVIEW] Unexpected error: {str(e)}")
+        return {"error": f"Unexpected error: {str(e)}"}
+
+@app.function(
+    image=image,
+    secrets=[eagleview_secret],
+    timeout=30
+)
+def fetch_eagleview_tile(urn: str, z: int, x: int, y: int) -> dict:
+    """Fetch a tile image from EagleView"""
+    import requests
+    from urllib.parse import quote
+
+    print(f"[EAGLEVIEW] Fetching tile for URN: {urn}, z={z}, x={x}, y={y}")
+
+    token_result = get_eagleview_token.local()
+    if "error" in token_result:
+        print(f"[EAGLEVIEW] Token error: {token_result['error']}")
+        return {"error": token_result["error"]}
+
+    access_token = token_result.get("access_token")
+    if not access_token:
+        print("[EAGLEVIEW] No access token in response")
+        return {"error": "Failed to get access token"}
+
+    try:
+        encoded_urn = quote(urn, safe='')
+        url = f"https://sandbox.apis.eagleview.com/imagery/v3/images/{encoded_urn}/tiles/{z}/{x}/{y}"
+
+        headers = {
+            "Authorization": f"Bearer {access_token}"
+        }
+
+        params = {
+            "format": "IMAGE_FORMAT_PNG"
+        }
+
+        print(f"[EAGLEVIEW] Calling tile API at {url}")
+
+        response = requests.get(url, headers=headers, params=params, timeout=30)
+
+        if response.status_code != 200:
+            print(f"[EAGLEVIEW] Tile API error: {response.text}")
+            return {"error": f"Tile request failed with status {response.status_code}"}
+
+        response.raise_for_status()
+
+        print(f"[EAGLEVIEW] Tile fetched successfully, size: {len(response.content)} bytes")
+
+        content_b64 = base64.b64encode(response.content).decode('utf-8')
+
+        return {
+            "content": content_b64,
+            "content_type": response.headers.get("Content-Type", "image/png")
+        }
+
+    except requests.exceptions.RequestException as e:
+        print(f"[EAGLEVIEW] Tile request failed: {str(e)}")
+        return {"error": f"Tile request failed: {str(e)}"}
     except Exception as e:
         print(f"[EAGLEVIEW] Unexpected error: {str(e)}")
         return {"error": f"Unexpected error: {str(e)}"}
@@ -244,6 +304,55 @@ async def discovery(request: DiscoveryRequest, token: str = Depends(verify_token
         import traceback
         print(f"[API] Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Discovery request failed: {str(e)}")
+
+@web_app.get("/api/v1/eagleview/tiles/{urn:path}/{z}/{x}/{y}")
+async def tile_proxy(urn: str, z: int, x: int, y: int, token: str = Depends(verify_token)):
+    """Fetch EagleView tile image (proxy to avoid CORS)"""
+    import requests
+    from urllib.parse import quote
+
+    try:
+        print(f"[API] Received tile request for URN: {urn}, z={z}, x={x}, y={y}")
+
+        token_result = get_eagleview_token.remote()
+        if "error" in token_result:
+            return JSONResponse(content=token_result, status_code=500)
+
+        access_token = token_result.get("access_token")
+        if not access_token:
+            return JSONResponse(content={"error": "Failed to get access token"}, status_code=500)
+
+        encoded_urn = quote(urn, safe='')
+        url = f"https://sandbox.apis.eagleview.com/imagery/v3/images/{encoded_urn}/tiles/{z}/{x}/{y}"
+
+        headers = {
+            "Authorization": f"Bearer {access_token}"
+        }
+
+        params = {
+            "format": "IMAGE_FORMAT_PNG"
+        }
+
+        print(f"[API] Proxying tile request to {url}")
+
+        response = requests.get(url, headers=headers, params=params, timeout=30)
+        response.raise_for_status()
+
+        print(f"[API] Returning tile image, size: {len(response.content)} bytes")
+
+        return Response(
+            content=response.content,
+            media_type="image/png",
+            headers={
+                "Cache-Control": "public, max-age=86400"
+            }
+        )
+
+    except Exception as e:
+        print(f"[API] EXCEPTION: {str(e)}")
+        import traceback
+        print(f"[API] Traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Tile request failed: {str(e)}")
 
 @web_app.get("/health")
 async def health_check():

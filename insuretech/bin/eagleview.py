@@ -153,6 +153,8 @@ if __name__ == "__main__":
         lat = 41.250214
         lng = -95.991634
 
+        # http://localhost:5173/?lat=1.250214&lng=-95.991634&zoom=22
+
         token_data = get_eagleview_token()
         access_token = token_data['access_token']
 

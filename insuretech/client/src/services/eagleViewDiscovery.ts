@@ -16,6 +16,10 @@ export type ImageResource = {
     minimum_zoom_level: number;
     maximum_zoom_level: number;
   };
+  ground_footprint?: {
+    coordinates: number[][][]; // GeoJSON MultiPolygon coordinates
+  };
+  type: "ortho" | "oblique";
 };
 
 export type DiscoveryResult = {
@@ -79,6 +83,7 @@ export const discoverImagesForLocation = async (
         urn: orthoImage.urn,
         tilebox: orthoImage.resources.tilebox,
         zoom_range: orthoImage.zoom_range,
+        type: "ortho",
       };
     }
 
@@ -87,10 +92,29 @@ export const discoverImagesForLocation = async (
       const oblique = firstCapture.obliques?.[direction];
       if (oblique?.images?.[0]) {
         const image = oblique.images[0];
+
+        // Parse ground_footprint GeoJSON
+        let groundFootprint;
+        if (image.ground_footprint?.geojson?.value) {
+          try {
+            const geojson = JSON.parse(image.ground_footprint.geojson.value);
+            const feature = geojson.features?.[0];
+            if (feature?.geometry?.type === "MultiPolygon") {
+              groundFootprint = {
+                coordinates: feature.geometry.coordinates
+              };
+            }
+          } catch (e) {
+            console.error("Error parsing ground_footprint", e);
+          }
+        }
+
         result[direction] = {
           urn: image.urn,
           tilebox: image.resources.tilebox,
           zoom_range: image.zoom_range,
+          ground_footprint: groundFootprint,
+          type: "oblique",
         };
       }
     }
