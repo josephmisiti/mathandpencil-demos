@@ -8,6 +8,7 @@ import {
 import { COLORS } from "../constants/colors";
 import { LAYERS_CONFIG } from "../config/layers";
 import { Tooltip } from "react-tooltip";
+import { ImageDirection } from "../services/eagleViewDiscovery";
 
 interface MapControlsProps {
   highResEnabled: boolean;
@@ -31,6 +32,10 @@ interface MapControlsProps {
 
   highResLoading?: boolean;
   highResError?: string | null;
+
+  selectedImageDirection: ImageDirection;
+  onImageDirectionChange: (direction: ImageDirection) => void;
+  availableDirections: ImageDirection[];
 }
 
 export default function MapControls({
@@ -54,7 +59,11 @@ export default function MapControls({
   constructionAnalysisActive = false,
 
   highResLoading = false,
-  highResError = null
+  highResError = null,
+
+  selectedImageDirection,
+  onImageDirectionChange,
+  availableDirections
 }: MapControlsProps) {
   const STORAGE_KEY = "map-controls-open";
   const [isOpen, setIsOpen] = useState(() => {
@@ -70,10 +79,11 @@ export default function MapControls({
   const isDisabled = highResLoading;
 
   const statusMessage = useMemo(() => {
+    if (highResLoading && !highResEnabled) return "Fetching authentication token…";
     if (highResLoading) return "Loading EagleView imagery…";
     if (highResError) return highResError;
     return "";
-  }, [highResError, highResLoading]);
+  }, [highResError, highResLoading, highResEnabled]);
 
   const handleToggle = () => {
     if (isDisabled) return;
@@ -185,6 +195,41 @@ export default function MapControls({
                   <p className="mt-2 text-xs text-gray-500">
                     {statusMessage}
                   </p>
+                )}
+                {highResEnabled && availableDirections.length > 0 && (
+                  <div className="mt-3 pt-3 border-t border-gray-200">
+                    <p className="text-xs font-medium text-gray-600 mb-2">View Direction</p>
+                    <div className="flex gap-1">
+                      {[
+                        { value: "ortho" as const, label: "V", title: "Vertical (Ortho)" },
+                        { value: "north" as const, label: "N", title: "North Oblique" },
+                        { value: "east" as const, label: "E", title: "East Oblique" },
+                        { value: "south" as const, label: "S", title: "South Oblique" },
+                        { value: "west" as const, label: "W", title: "West Oblique" }
+                      ].map(({ value, label, title }) => {
+                        const isAvailable = availableDirections.includes(value);
+                        const isActive = selectedImageDirection === value;
+                        return (
+                          <button
+                            key={value}
+                            type="button"
+                            onClick={() => isAvailable && onImageDirectionChange(value)}
+                            disabled={!isAvailable}
+                            title={title}
+                            className={`flex-1 rounded px-2 py-1.5 text-xs font-medium transition-colors ${
+                              isActive
+                                ? "bg-blue-600 text-white shadow"
+                                : isAvailable
+                                ? "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                                : "bg-gray-50 text-gray-400 cursor-not-allowed"
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
                 )}
               </div>
             )}

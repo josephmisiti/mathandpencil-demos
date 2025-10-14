@@ -15,6 +15,12 @@ import DistanceMeasurement from "./DistanceMeasurement";
 import RoofAnalysis from "./RoofAnalysis";
 import ConstructionAnalysis from "./ConstructionAnalysis";
 import { SLOSH_CATEGORIES, SloshCategory } from "../constants/slosh";
+import {
+  discoverImagesForLocation,
+  DiscoveryResult,
+  ImageDirection
+} from "../services/eagleViewDiscovery";
+import { getEagleViewBearerToken } from "../services/eagleViewAuth";
 
 export default function MapView({
   center,
@@ -32,6 +38,9 @@ export default function MapView({
   const [highResEnabled, setHighResEnabled] = useState(false);
   const [floodZoneEnabled, setFloodZoneEnabled] = useState(false);
   const [femaStructuresEnabled, setFemaStructuresEnabled] = useState(false);
+  const [discoveryResult, setDiscoveryResult] = useState<DiscoveryResult | null>(null);
+  const [selectedImageDirection, setSelectedImageDirection] = useState<ImageDirection>("ortho");
+  const [tokenReady, setTokenReady] = useState(false);
   const [sloshEnabled, setSloshEnabled] = useState<
     Record<SloshCategory, boolean>
   >(() => {
@@ -104,6 +113,22 @@ export default function MapView({
     [sloshEnabled]
   );
   const overlaysActive = floodZoneEnabled || sloshActive || femaStructuresEnabled;
+
+  const availableDirections = useMemo<ImageDirection[]>(() => {
+    if (!discoveryResult) return [];
+    const directions: ImageDirection[] = [];
+    if (discoveryResult.ortho) directions.push("ortho");
+    if (discoveryResult.north) directions.push("north");
+    if (discoveryResult.east) directions.push("east");
+    if (discoveryResult.south) directions.push("south");
+    if (discoveryResult.west) directions.push("west");
+    return directions;
+  }, [discoveryResult]);
+
+  const selectedImageResource = useMemo(() => {
+    if (!discoveryResult) return null;
+    return discoveryResult[selectedImageDirection];
+  }, [discoveryResult, selectedImageDirection]);
 
   const exitStreetView = useCallback(() => {
     const streetView = streetViewRef.current;
@@ -329,6 +354,15 @@ export default function MapView({
     setHighResEnabled(enabled);
     if (enabled) {
       setHighResErrorMessage(null);
+      discoverImagesForLocation(mapCenter.lat, mapCenter.lng).then((result) => {
+        console.log("Discovery result:", result);
+        setDiscoveryResult(result);
+        if (result?.ortho) {
+          setSelectedImageDirection("ortho");
+        }
+      });
+    } else {
+      setDiscoveryResult(null);
     }
   };
 
@@ -336,6 +370,19 @@ export default function MapView({
     setMapZoom(zoom);
     mapZoomRef.current = zoom;
   }, [zoom]);
+
+  useEffect(() => {
+    console.log("Pre-fetching EagleView bearer token on page load");
+    getEagleViewBearerToken().then((token) => {
+      if (token) {
+        console.log("Bearer token pre-fetched successfully");
+        setTokenReady(true);
+      } else {
+        console.warn("Failed to pre-fetch bearer token");
+        setTokenReady(false);
+      }
+    });
+  }, []);
 
   useEffect(() => {
     const nextCenter = { lat: center.lat, lng: center.lng };
@@ -543,8 +590,11 @@ export default function MapView({
           constructionAnalysisActive={
             constructionAnalysisVisible || constructionAnalysisOverlay
           }
-          highResLoading={false}
+          highResLoading={!tokenReady}
           highResError={highResErrorMessage}
+          selectedImageDirection={selectedImageDirection}
+          onImageDirectionChange={setSelectedImageDirection}
+          availableDirections={availableDirections}
         />
       )}
       <Map
@@ -636,7 +686,10 @@ export default function MapView({
           );
         }}
       >
-        <EagleViewOverlay enabled={highResEnabled} />
+        <EagleViewOverlay
+          enabled={highResEnabled}
+          imageResource={selectedImageResource}
+        />
         <FloodZoneOverlay enabled={floodZoneEnabled} />
         <FemaStructuresOverlay enabled={femaStructuresEnabled} />
         <SloshOverlay
