@@ -149,29 +149,31 @@ const App = () => {
                 onMapControlsToggle={() => setMapControlsVisible(!mapControlsVisible)}
               />
 
-              <div className="absolute top-4 left-4 z-10 flex h-[calc(100vh-2rem)] w-96 flex-col gap-4">
-                <AddressSearch
-                  onLocationSelect={handleLocationSelect}
-                  onAddressClear={handleAddressClear}
-                  initialAddress={initialAddress}
-                  hidePdfUpload={isRoofAnalysisActive || isConstructionAnalysisActive}
-                />
-                <div
-                  ref={roofPanelContainerRef}
-                  className={
-                    isRoofAnalysisActive
-                      ? "flex-1 min-h-0 overflow-y-auto pr-2"
-                      : "hidden"
-                  }
-                />
-                <div
-                  ref={constructionPanelContainerRef}
-                  className={
-                    isConstructionAnalysisActive
-                      ? "flex-1 min-h-0 overflow-y-auto pr-2"
-                      : "hidden"
-                  }
-                />
+              <div className="absolute top-4 left-4 z-10 flex h-[calc(100vh-2rem)] w-96 flex-col gap-4 pointer-events-none">
+                <div className="pointer-events-auto">
+                  <AddressSearch
+                    onLocationSelect={handleLocationSelect}
+                    onAddressClear={handleAddressClear}
+                    initialAddress={initialAddress}
+                    hidePdfUpload={isRoofAnalysisActive || isConstructionAnalysisActive}
+                  />
+                  <div
+                    ref={roofPanelContainerRef}
+                    className={
+                      isRoofAnalysisActive
+                        ? "flex-1 min-h-0 overflow-y-auto pr-2"
+                        : "hidden"
+                    }
+                  />
+                  <div
+                    ref={constructionPanelContainerRef}
+                    className={
+                      isConstructionAnalysisActive
+                        ? "flex-1 min-h-0 overflow-y-auto pr-2"
+                        : "hidden"
+                    }
+                  />
+                </div>
               </div>
             </div>
           </div>

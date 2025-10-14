@@ -104,7 +104,7 @@ export default function MapControls({
   } ${roofDisabled ? "cursor-not-allowed opacity-60 hover:bg-gray-100" : ""}`;
 
   return (
-    <div className="absolute top-4 right-4 z-20">
+    <div className="absolute top-4 right-4 z-30">
       <div className={`${COLORS.panelBackground} ${COLORS.panelRounded} ${COLORS.panelShadow} border ${COLORS.panelBorder} w-64`}>
         <button
           onClick={() => setIsOpen(!isOpen)}
