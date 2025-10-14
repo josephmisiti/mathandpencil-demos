@@ -4,7 +4,6 @@ import { Map, Marker, InfoWindow } from "@vis.gl/react-google-maps";
 import { MapProps, Location } from "../types/location";
 import MarkerInfo from "./MarkerInfo";
 import MapControls from "./MapControls";
-import { useEagleViewImagery } from "../hooks/useEagleViewImagery";
 import { EagleViewOverlay } from "./EagleViewOverlay";
 import FloodZoneOverlay from "./FloodZoneOverlay";
 import SloshOverlay from "./SloshOverlay";
@@ -254,29 +253,6 @@ export default function MapView({
     };
   }, []);
 
-  const { imagery, status, error } = useEagleViewImagery(
-    highResEnabled,
-    center
-  );
-
-  const overlayImagery = useMemo(() => {
-    if (!highResEnabled || status !== "ready") return null;
-    return imagery;
-  }, [highResEnabled, imagery, status]);
-
-  const layers = useMemo(() => {
-    const result = [];
-    if (overlayImagery) {
-      result.push(
-        EagleViewOverlay({
-          id: "eagleview-layer",
-          imagery: overlayImagery,
-          visible: highResEnabled
-        })
-      );
-    }
-    return result;
-  }, [overlayImagery, highResEnabled]);
 
   // Calculate polygon area using the shoelace formula
   const calculatePolygonArea = (
@@ -375,22 +351,6 @@ export default function MapView({
     mapZoomRef.current = mapZoom;
   }, [mapZoom]);
 
-  useEffect(() => {
-    if (status === "ready") {
-      setHighResErrorMessage(null);
-    }
-  }, [status]);
-
-  useEffect(() => {
-    if (!highResEnabled) return;
-
-    if (status === "error") {
-      setHighResEnabled(false);
-      const message = error || "Failed to load EagleView imagery.";
-      setHighResErrorMessage(message);
-      console.error("EagleView imagery error:", message);
-    }
-  }, [error, highResEnabled, status]);
 
   useEffect(() => {
     if (!floodZoneEnabled) {
@@ -583,7 +543,7 @@ export default function MapView({
           constructionAnalysisActive={
             constructionAnalysisVisible || constructionAnalysisOverlay
           }
-          highResLoading={status === "loading"}
+          highResLoading={false}
           highResError={highResErrorMessage}
         />
       )}
@@ -676,6 +636,7 @@ export default function MapView({
           );
         }}
       >
+        <EagleViewOverlay enabled={highResEnabled} />
         <FloodZoneOverlay enabled={floodZoneEnabled} />
         <FemaStructuresOverlay enabled={femaStructuresEnabled} />
         <SloshOverlay

@@ -1,77 +1,140 @@
+import { GoogleMapsOverlay } from "@deck.gl/google-maps";
 import { TileLayer } from "@deck.gl/geo-layers";
 import { BitmapLayer } from "@deck.gl/layers";
-import type { EagleViewImagery } from "../services/eagleView";
+import { useMap } from "@vis.gl/react-google-maps";
+import { useEffect, useState } from "react";
 
-const apiKey = (import.meta.env.VITE_EAGLE_VIEW_API_KEY || "").trim();
+const DEFAULT_EAGLEVIEW_LAYER_ID = "LatestBestResolution";
+const DEFAULT_EAGLEVIEW_STYLE = "default";
+const DEFAULT_EAGLEVIEW_TILE_MATRIX_SET = "GoogleMapsCompatible_9-23";
+const DEFAULT_EAGLEVIEW_FORMAT = "jpeg";
 
-type EagleViewLayerProps = {
-  id: string;
-  imagery: EagleViewImagery;
-  visible: boolean;
+const baseUrl = (import.meta.env.VITE_APP_EAGLEVIEW_BASE_URL || "").trim();
+const apiKey = (import.meta.env.VITE_APP_EAGLEVIEW_API_KEY || "").trim();
+
+type EagleViewOverlayProps = {
+  enabled: boolean;
+  layerName?: string;
+  wmtsStyle?: string;
+  wmtsTileMatrixSet?: string;
+  imageFormat?: string;
+  minZoom?: number;
+  maxZoom?: number;
 };
 
-export function EagleViewOverlay({ id, imagery, visible }: EagleViewLayerProps) {
-  const { tileUrlTemplate, minZoom, maxZoom, imageUrn } = imagery;
+console.info("apiKey:", apiKey);
 
-  const buildTileUrl = (z: number, x: number, y: number) => {
-    const resolved = tileUrlTemplate
-      .replace("{image_urn}", imageUrn)
-      .replace("{imageUrn}", imageUrn)
-      .replace("{z}", z.toString())
-      .replace("{x}", x.toString())
-      .replace("{y}", y.toString());
+const getZoomBoundsFromTileMatrixSet = (tileMatrixSet: string) => {
+  if (tileMatrixSet.startsWith("GoogleMapsCompatible")) {
+    return { minZoom: 0, maxZoom: 22 };
+  }
+  return { minZoom: 15, maxZoom: 22 };
+};
 
-    if (!apiKey) return resolved;
+export const EagleViewOverlay = ({
+  enabled,
+  layerName,
+  wmtsStyle,
+  wmtsTileMatrixSet,
+  imageFormat,
+  minZoom,
+  maxZoom
+}: EagleViewOverlayProps) => {
+  const map = useMap();
+  const [overlay, setOverlay] = useState<GoogleMapsOverlay | null>(null);
 
-    try {
-      const url = new URL(resolved);
-      const hasKeyParam = Array.from(url.searchParams.keys()).some(key => {
-        const normalized = key.toLowerCase();
-        return normalized === "apikey" || normalized === "api_key" || normalized === "x-api-key";
-      });
+  const resolvedLayerId = layerName ?? DEFAULT_EAGLEVIEW_LAYER_ID;
+  const resolvedStyle = wmtsStyle ?? DEFAULT_EAGLEVIEW_STYLE;
+  const resolvedTileMatrixSet =
+    wmtsTileMatrixSet ?? DEFAULT_EAGLEVIEW_TILE_MATRIX_SET;
+  const resolvedFormat = imageFormat ?? DEFAULT_EAGLEVIEW_FORMAT;
+  const zoomBounds = getZoomBoundsFromTileMatrixSet(resolvedTileMatrixSet);
+  const resolvedMinZoom = minZoom ?? zoomBounds.minZoom;
+  const resolvedMaxZoom = maxZoom ?? zoomBounds.maxZoom;
 
-      if (!hasKeyParam) {
-        url.searchParams.set("apiKey", apiKey);
-      }
+  const sanitizedUrl = baseUrl.endsWith("/") ? baseUrl.slice(0, -1) : baseUrl;
 
-      return url.toString();
-    } catch (err) {
-      const separator = resolved.includes("?") ? "&" : "?";
-      return `${resolved}${separator}apiKey=${encodeURIComponent(apiKey)}`;
-    }
-  };
+  const tileBaseUrl = `${sanitizedUrl}/imagery/wmts/v1/visual/tile/${resolvedLayerId}/${resolvedStyle}/${resolvedTileMatrixSet}/{z}/{x}/{y}.${resolvedFormat}`;
+  const dataUrl = apiKey
+    ? `${tileBaseUrl}${
+        tileBaseUrl.includes("?") ? "&" : "?"
+      }api_key=${encodeURIComponent(apiKey)}`
+    : tileBaseUrl;
 
-  const dataUrl = buildTileUrl("{z}", "{x}", "{y}");
+  useEffect(() => {
+    if (!map) return;
 
-  return new TileLayer({
-    id,
-    data: dataUrl,
-    minZoom: minZoom ?? 15,
-    maxZoom: maxZoom ?? 22,
-    tileSize: 256,
-    visible,
-    refinementStrategy: "best-available",
-    renderSubLayers: (props: any) => {
-      const {
-        bbox: { west, south, east, north }
-      } = props.tile;
+    console.log("EagleViewOverlay: Creating GoogleMapsOverlay");
+    const instance = new GoogleMapsOverlay({ layers: [] });
+    instance.setMap(map);
+    setOverlay(instance);
 
-      return new BitmapLayer({
-        id: `${props.id}-bitmap`,
-        image: props.data,
-        bounds: [west, south, east, north],
-        desaturate: 0,
-        opacity: 1,
-        transparentColor: [0, 0, 0, 0],
-        tintColor: [255, 255, 255]
-      });
-    },
-    loadOptions: {
-      fetch: {
-        headers: {
-          Accept: `image/jpeg`
-        }
-      }
-    }
-  });
-}
+    return () => {
+      console.log("EagleViewOverlay: Cleaning up GoogleMapsOverlay");
+      instance.setMap(null);
+    };
+  }, [map]);
+
+  useEffect(() => {
+    if (!overlay) return;
+
+    console.log("EagleViewOverlay: Updating layers", {
+      enabled,
+      dataUrl,
+      minZoom: resolvedMinZoom,
+      maxZoom: resolvedMaxZoom
+    });
+
+    const layers = enabled
+      ? [
+          new TileLayer({
+            id: `eagleview-${resolvedLayerId}-layer`,
+            data: dataUrl,
+            minZoom: resolvedMinZoom,
+            maxZoom: resolvedMaxZoom,
+            tileSize: 256,
+            maxCacheSize: 40,
+            refinementStrategy: "best-available",
+            renderSubLayers: (props) => {
+              const {
+                // @ts-ignore
+                bbox: { west, south, east, north }
+              } = props.tile;
+
+              return new BitmapLayer({
+                id: `${props.id}-bitmap`,
+                image: props.data,
+                bounds: [west, south, east, north],
+                desaturate: 0,
+                opacity: 1,
+                transparentColor: [0, 0, 0, 0],
+                tintColor: [255, 255, 255]
+              });
+            },
+            loadOptions: {
+              fetch: {
+                method: "GET",
+                headers: {
+                  Accept: `image/${resolvedFormat}`
+                },
+                credentials: "omit"
+              }
+            }
+          })
+        ]
+      : [];
+
+    console.log("EagleViewOverlay: Setting layers", layers.length);
+    overlay.setProps({ layers });
+  }, [
+    overlay,
+    enabled,
+    dataUrl,
+    resolvedLayerId,
+    resolvedMinZoom,
+    resolvedMaxZoom,
+    resolvedFormat
+  ]);
+
+  return null;
+};

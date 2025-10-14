@@ -20,6 +20,8 @@ const parseEnabledLayers = (): Set<LayerType> | null => {
   return new Set(layers as LayerType[]);
 };
 
+console.info("ENABLED_LAYERS_ENV", ENABLED_LAYERS_ENV);
+
 const enabledLayersSet = parseEnabledLayers();
 
 export const isLayerEnabled = (layer: LayerType): boolean => {
