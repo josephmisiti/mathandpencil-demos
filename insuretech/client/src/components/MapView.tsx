@@ -576,6 +576,7 @@ export default function MapView({
           isSatelliteView={isSatelliteView}
           isStreetViewActive={streetViewVisible}
           overlaysActive={overlaysActive}
+          currentZoom={mapZoom}
           onRoofAnalysis={openRoofAnalysis}
           onConstructionAnalysis={openConstructionAnalysis}
           roofAnalysisActive={roofAnalysisVisible || roofAnalysisOverlay}

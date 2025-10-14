@@ -7,6 +7,7 @@ import {
 } from "../constants/slosh";
 import { COLORS } from "../constants/colors";
 import { LAYERS_CONFIG } from "../config/layers";
+import { Tooltip } from "react-tooltip";
 
 interface MapControlsProps {
   highResEnabled: boolean;
@@ -22,6 +23,7 @@ interface MapControlsProps {
   isSatelliteView: boolean;
   isStreetViewActive: boolean;
   overlaysActive: boolean;
+  currentZoom: number;
   onRoofAnalysis: () => void;
   onConstructionAnalysis: () => void;
   roofAnalysisActive?: boolean;
@@ -45,6 +47,7 @@ export default function MapControls({
   isSatelliteView,
   isStreetViewActive,
   overlaysActive,
+  currentZoom,
   onRoofAnalysis,
   onConstructionAnalysis,
   roofAnalysisActive = false,
@@ -85,15 +88,22 @@ export default function MapControls({
     onFemaStructuresToggle(!femaStructuresEnabled);
   };
 
+  const MIN_ZOOM_FOR_ROOF_ANALYSIS = 21;
+
   const overlaysDisabledMessage = useMemo(() => (
     overlaysActive ? "Disable overlays to run analyses." : ""
   ), [overlaysActive]);
 
   const constructionDisabled = overlaysActive || !isStreetViewActive;
-  const roofDisabled = overlaysActive || !isSatelliteView;
+  const roofDisabled = overlaysActive || !isSatelliteView || currentZoom < MIN_ZOOM_FOR_ROOF_ANALYSIS;
 
   const constructionTitle = overlaysDisabledMessage || (isStreetViewActive ? undefined : "Switch to Street View to enable construction analysis.");
-  const roofTitle = overlaysDisabledMessage || (isSatelliteView ? undefined : "Switch to Satellite view to enable roof analysis.");
+  const roofTitle = useMemo(() => {
+    if (overlaysDisabledMessage) return overlaysDisabledMessage;
+    if (!isSatelliteView) return "Switch to Satellite view to enable roof analysis.";
+    if (currentZoom < MIN_ZOOM_FOR_ROOF_ANALYSIS) return `Zoom in to level ${MIN_ZOOM_FOR_ROOF_ANALYSIS} or higher to enable roof analysis. Current zoom: ${Math.round(currentZoom)}`;
+    return undefined;
+  }, [overlaysDisabledMessage, isSatelliteView, currentZoom]);
 
   const constructionButtonClasses = `${"w-full rounded-md px-3 py-2 text-sm font-medium transition-colors"} ${
     constructionAnalysisActive ? "bg-blue-600 text-white shadow" : "bg-gray-100 text-gray-700 hover:bg-gray-200"
@@ -276,10 +286,13 @@ export default function MapControls({
                   }}
                   disabled={constructionDisabled}
                   className={constructionButtonClasses}
-                  title={constructionTitle}
+                  data-tooltip-id="construction-analysis-tooltip"
+                  data-tooltip-content={constructionTitle || "Construction Analysis requires Google Street View"}
                 >
                   {constructionAnalysisActive ? "Construction Analysis Active" : "Run Construction Analysis"}
                 </button>
+                <Tooltip id="construction-analysis-tooltip" place="left" style={{ zIndex: 9999 }} />
+
                 <button
                   type="button"
                   onClick={() => {
@@ -288,10 +301,12 @@ export default function MapControls({
                   }}
                   disabled={roofDisabled}
                   className={roofButtonClasses}
-                  title={roofTitle}
+                  data-tooltip-id="roof-analysis-tooltip"
+                  data-tooltip-content={roofTitle || `Roof Analysis requires Satellite view and zoom level ${MIN_ZOOM_FOR_ROOF_ANALYSIS}+`}
                 >
                   {roofAnalysisActive ? "Roof Analysis Active" : "Run Roof Analysis"}
                 </button>
+                <Tooltip id="roof-analysis-tooltip" place="left" style={{ zIndex: 9999 }} />
               </div>
               {overlaysDisabledMessage && (
                 <p className="text-xs text-gray-500">{overlaysDisabledMessage}</p>
