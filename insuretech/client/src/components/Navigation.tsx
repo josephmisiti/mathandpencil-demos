@@ -1,5 +1,6 @@
 import { SignedIn, UserButton } from "@clerk/clerk-react";
 import { Shell, SquareMenu } from "lucide-react";
+import { Tooltip } from "react-tooltip";
 import { COLORS } from "../constants/colors";
 
 interface NavigationProps {
@@ -19,11 +20,13 @@ export default function Navigation({ onMenuToggle, isMenuVisible }: NavigationPr
       <button
         onClick={onMenuToggle}
         className="text-gray-600 hover:text-gray-900 hover:bg-gray-100 p-2 rounded-md transition-colors"
-        title={isMenuVisible ? "Hide Menu" : "Show Menu"}
+        data-tooltip-id="menu-toggle-tooltip"
+        data-tooltip-content={isMenuVisible ? "Hide Menu" : "Show Menu"}
         aria-label={isMenuVisible ? "Hide Menu" : "Show Menu"}
       >
         <SquareMenu size={24} strokeWidth={2} />
       </button>
+      <Tooltip id="menu-toggle-tooltip" place="right" style={{ zIndex: 9999 }} />
 
       {/* Spacer to push auth to bottom */}
       <div className="flex-1" />
