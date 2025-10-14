@@ -32,9 +32,7 @@ export const EagleViewOverlay = ({
       return;
     }
 
-    console.log("EagleViewOverlay: Fetching bearer token");
     getEagleViewBearerToken().then((token) => {
-      console.log("EagleViewOverlay: Bearer token received", token);
       if (token) {
         setBearerToken(token);
       }
@@ -43,23 +41,22 @@ export const EagleViewOverlay = ({
 
   useEffect(() => {
     if (!map) {
-      console.log("EagleViewOverlay: Map not ready yet");
       return;
     }
 
-    console.log("EagleViewOverlay: Creating GoogleMapsOverlay", { map });
     let instance: GoogleMapsOverlay | null = null;
     try {
       instance = new GoogleMapsOverlay({ layers: [] });
       instance.setMap(map);
       setOverlay(instance);
-      console.log("EagleViewOverlay: GoogleMapsOverlay created successfully");
     } catch (error) {
-      console.error("EagleViewOverlay: Error creating GoogleMapsOverlay", error);
+      console.error(
+        "EagleViewOverlay: Error creating GoogleMapsOverlay",
+        error
+      );
     }
 
     return () => {
-      console.log("EagleViewOverlay: Cleaning up GoogleMapsOverlay");
       if (instance) {
         instance.setMap(null);
       }
@@ -73,22 +70,34 @@ export const EagleViewOverlay = ({
 
     console.log("EagleViewOverlay: Updating layers", {
       enabled,
-      imageResource: imageResource ? {
-        urn: imageResource.urn,
-        minZoom: imageResource.zoom_range.minimum_zoom_level,
-        maxZoom: imageResource.zoom_range.maximum_zoom_level
-      } : "missing",
+      imageResource: imageResource
+        ? {
+            urn: imageResource.urn,
+            minZoom: imageResource.zoom_range.minimum_zoom_level,
+            maxZoom: imageResource.zoom_range.maximum_zoom_level
+          }
+        : "missing",
       bearerToken: bearerToken ? "present" : "missing",
       authUrl,
       currentMapZoom: mapZoom
     });
 
-    if (imageResource && mapZoom < imageResource.zoom_range.minimum_zoom_level) {
-      console.warn(`EagleViewOverlay: Current map zoom (${mapZoom}) is below minimum zoom (${imageResource.zoom_range.minimum_zoom_level}). Tiles will not be visible. Zoom in to see imagery.`);
+    if (
+      imageResource &&
+      mapZoom < imageResource.zoom_range.minimum_zoom_level
+    ) {
+      console.warn(
+        `EagleViewOverlay: Current map zoom (${mapZoom}) is below minimum zoom (${imageResource.zoom_range.minimum_zoom_level}). Tiles will not be visible. Zoom in to see imagery.`
+      );
     }
 
-    if (imageResource && mapZoom > imageResource.zoom_range.maximum_zoom_level) {
-      console.warn(`EagleViewOverlay: Current map zoom (${mapZoom}) is above maximum zoom (${imageResource.zoom_range.maximum_zoom_level}). Tiles will not be visible. Zoom out to see imagery. (Oblique images typically require zoom 5-8 or lower)`);
+    if (
+      imageResource &&
+      mapZoom > imageResource.zoom_range.maximum_zoom_level
+    ) {
+      console.warn(
+        `EagleViewOverlay: Current map zoom (${mapZoom}) is above maximum zoom (${imageResource.zoom_range.maximum_zoom_level}). Tiles will not be visible. Zoom out to see imagery. (Oblique images typically require zoom 5-8 or lower)`
+      );
     }
 
     const layers =
@@ -98,7 +107,11 @@ export const EagleViewOverlay = ({
               id: `eagleview-image-${imageResource.urn}`,
               visible: true,
               opacity: 1,
-              data: `${authUrl.endsWith("/") ? authUrl.slice(0, -1) : authUrl}/api/v1/eagleview/tiles/${encodeURIComponent(imageResource.urn)}/{z}/{x}/{y}`,
+              data: `${
+                authUrl.endsWith("/") ? authUrl.slice(0, -1) : authUrl
+              }/api/v1/eagleview/tiles/${encodeURIComponent(
+                imageResource.urn
+              )}/{z}/{x}/{y}`,
               minZoom: imageResource.zoom_range.minimum_zoom_level,
               maxZoom: imageResource.zoom_range.maximum_zoom_level,
               tileSize: 256,
@@ -138,7 +151,11 @@ export const EagleViewOverlay = ({
           ]
         : [];
 
-    console.log("EagleViewOverlay: Setting layers", layers.length, layers.length > 0 ? "layer created" : "no layers");
+    console.log(
+      "EagleViewOverlay: Setting layers",
+      layers.length,
+      layers.length > 0 ? "layer created" : "no layers"
+    );
     if (layers.length > 0) {
       console.log("EagleViewOverlay: Layer config:", {
         id: layers[0].id,

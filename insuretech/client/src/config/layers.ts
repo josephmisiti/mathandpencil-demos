@@ -5,8 +5,6 @@
 export type LayerType = "highres" | "floodzone" | "fema" | "slosh";
 
 const ENABLED_LAYERS_ENV = import.meta.env.VITE_ENABLED_LAYERS;
-
-console.log("ENABLED_LAYERS_ENV:", ENABLED_LAYERS_ENV);
 // Parse the comma-separated list of enabled layers
 const parseEnabledLayers = (): Set<LayerType> | null => {
   if (!ENABLED_LAYERS_ENV) {
@@ -19,8 +17,6 @@ const parseEnabledLayers = (): Set<LayerType> | null => {
 
   return new Set(layers as LayerType[]);
 };
-
-console.info("ENABLED_LAYERS_ENV", ENABLED_LAYERS_ENV);
 
 const enabledLayersSet = parseEnabledLayers();
 

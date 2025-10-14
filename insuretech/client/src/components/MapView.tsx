@@ -38,8 +38,10 @@ export default function MapView({
   const [highResEnabled, setHighResEnabled] = useState(false);
   const [floodZoneEnabled, setFloodZoneEnabled] = useState(false);
   const [femaStructuresEnabled, setFemaStructuresEnabled] = useState(false);
-  const [discoveryResult, setDiscoveryResult] = useState<DiscoveryResult | null>(null);
-  const [selectedImageDirection, setSelectedImageDirection] = useState<ImageDirection>("ortho");
+  const [discoveryResult, setDiscoveryResult] =
+    useState<DiscoveryResult | null>(null);
+  const [selectedImageDirection, setSelectedImageDirection] =
+    useState<ImageDirection>("ortho");
   const [tokenReady, setTokenReady] = useState(false);
   const [sloshEnabled, setSloshEnabled] = useState<
     Record<SloshCategory, boolean>
@@ -112,7 +114,8 @@ export default function MapView({
     () => SLOSH_CATEGORIES.some((category) => sloshEnabled[category]),
     [sloshEnabled]
   );
-  const overlaysActive = floodZoneEnabled || sloshActive || femaStructuresEnabled;
+  const overlaysActive =
+    floodZoneEnabled || sloshActive || femaStructuresEnabled;
 
   const availableDirections = useMemo<ImageDirection[]>(() => {
     if (!discoveryResult) return [];
@@ -134,12 +137,17 @@ export default function MapView({
     if (!selectedImageResource || !mapInstanceRef.current) return;
 
     const currentZoom = mapInstanceRef.current.getZoom();
-    const { minimum_zoom_level, maximum_zoom_level } = selectedImageResource.zoom_range;
+    const { minimum_zoom_level, maximum_zoom_level } =
+      selectedImageResource.zoom_range;
 
     // Auto-zoom to valid range if current zoom is outside
     if (currentZoom < minimum_zoom_level || currentZoom > maximum_zoom_level) {
-      const targetZoom = Math.floor((minimum_zoom_level + maximum_zoom_level) / 2);
-      console.log(`Auto-zooming from ${currentZoom} to ${targetZoom} for selected image direction`);
+      const targetZoom = Math.floor(
+        (minimum_zoom_level + maximum_zoom_level) / 2
+      );
+      console.log(
+        `Auto-zooming from ${currentZoom} to ${targetZoom} for selected image direction`
+      );
       mapInstanceRef.current.setZoom(targetZoom);
     }
   }, [selectedImageResource]);
@@ -292,7 +300,6 @@ export default function MapView({
     };
   }, []);
 
-
   // Calculate polygon area using the shoelace formula
   const calculatePolygonArea = (
     points: google.maps.LatLngLiteral[]
@@ -386,10 +393,8 @@ export default function MapView({
   }, [zoom]);
 
   useEffect(() => {
-    console.log("Pre-fetching EagleView bearer token on page load");
     getEagleViewBearerToken().then((token) => {
       if (token) {
-        console.log("Bearer token pre-fetched successfully");
         setTokenReady(true);
       } else {
         console.warn("Failed to pre-fetch bearer token");
@@ -411,7 +416,6 @@ export default function MapView({
   useEffect(() => {
     mapZoomRef.current = mapZoom;
   }, [mapZoom]);
-
 
   useEffect(() => {
     if (!floodZoneEnabled) {

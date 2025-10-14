@@ -34,8 +34,6 @@ export const getEagleViewBearerToken = async (): Promise<string | null> => {
       }
     });
 
-    console.log("EagleView auth response status:", response.status);
-
     if (!response.ok) {
       throw new Error(`Failed to fetch EagleView token: ${response.status}`);
     }
