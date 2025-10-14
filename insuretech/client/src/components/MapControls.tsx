@@ -105,7 +105,7 @@ export default function MapControls({
 
   return (
     <div className="absolute top-4 right-4 z-20">
-      <div className={`${COLORS.panelBackground} ${COLORS.panelRounded} ${COLORS.panelShadow} border ${COLORS.panelBorder} min-w-64`}>
+      <div className={`${COLORS.panelBackground} ${COLORS.panelRounded} ${COLORS.panelShadow} border ${COLORS.panelBorder} w-64`}>
         <button
           onClick={() => setIsOpen(!isOpen)}
           className="w-full px-4 py-3 text-left font-medium text-gray-700 hover:bg-gray-50 rounded-t-lg flex items-center justify-between"

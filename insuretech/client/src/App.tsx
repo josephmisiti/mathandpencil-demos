@@ -25,6 +25,7 @@ const App = () => {
   const [isRoofAnalysisActive, setIsRoofAnalysisActive] = useState(false);
   const [isConstructionAnalysisActive, setIsConstructionAnalysisActive] =
     useState(false);
+  const [mapControlsVisible, setMapControlsVisible] = useState(true);
   const roofPanelContainerRef = useRef<HTMLDivElement | null>(null);
   const constructionPanelContainerRef = useRef<HTMLDivElement | null>(null);
 
@@ -127,7 +128,10 @@ const App = () => {
       <SignedIn>
         <APIProvider apiKey={GOOGLE_MAPS_API_KEY}>
           <div className="flex w-screen h-screen">
-            <Navigation />
+            <Navigation
+              onMenuToggle={() => setMapControlsVisible(!mapControlsVisible)}
+              isMenuVisible={mapControlsVisible}
+            />
 
             <div className="relative flex-1">
               <MapView
@@ -141,6 +145,8 @@ const App = () => {
                   setIsConstructionAnalysisActive
                 }
                 constructionAnalysisPanelRef={constructionPanelContainerRef}
+                mapControlsVisible={mapControlsVisible}
+                onMapControlsToggle={() => setMapControlsVisible(!mapControlsVisible)}
               />
 
               <div className="absolute top-4 left-4 z-10 flex h-[calc(100vh-2rem)] w-96 flex-col gap-4">

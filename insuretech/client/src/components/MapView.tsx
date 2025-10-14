@@ -25,7 +25,9 @@ export default function MapView({
   onRoofAnalysisVisibilityChange,
   roofAnalysisPanelRef,
   onConstructionAnalysisVisibilityChange,
-  constructionAnalysisPanelRef
+  constructionAnalysisPanelRef,
+  mapControlsVisible: externalMapControlsVisible,
+  onMapControlsToggle
 }: MapProps) {
   const [selectedMarker, setSelectedMarker] = useState<Location | null>(null);
   const [highResEnabled, setHighResEnabled] = useState(false);
@@ -75,6 +77,7 @@ export default function MapView({
     useState(false);
   const [mapTypeId, setMapTypeId] = useState<string>("roadmap");
   const [streetViewVisible, setStreetViewVisible] = useState(false);
+  const mapControlsVisible = externalMapControlsVisible ?? true;
   const streetViewListenerRef = useRef<google.maps.MapsEventListener | null>(
     null
   );
@@ -556,31 +559,33 @@ export default function MapView({
 
   return (
     <div ref={mapContainerRef} className="relative h-screen w-full">
-      <MapControls
-        highResEnabled={highResEnabled}
-        onHighResToggle={handleHighResToggle}
-        floodZoneEnabled={floodZoneEnabled}
-        onFloodZoneToggle={setFloodZoneEnabled}
-        femaStructuresEnabled={femaStructuresEnabled}
-        onFemaStructuresToggle={setFemaStructuresEnabled}
-        sloshEnabled={sloshEnabled}
-        onSloshToggle={(category, enabled) =>
-          setSloshEnabled((prev) => ({ ...prev, [category]: enabled }))
-        }
-        mapTypeId={mapTypeId}
-        onMapTypeChange={handleMapTypeChange}
-        isSatelliteView={isSatelliteView}
-        isStreetViewActive={streetViewVisible}
-        overlaysActive={overlaysActive}
-        onRoofAnalysis={openRoofAnalysis}
-        onConstructionAnalysis={openConstructionAnalysis}
-        roofAnalysisActive={roofAnalysisVisible || roofAnalysisOverlay}
-        constructionAnalysisActive={
-          constructionAnalysisVisible || constructionAnalysisOverlay
-        }
-        highResLoading={status === "loading"}
-        highResError={highResErrorMessage}
-      />
+      {mapControlsVisible && (
+        <MapControls
+          highResEnabled={highResEnabled}
+          onHighResToggle={handleHighResToggle}
+          floodZoneEnabled={floodZoneEnabled}
+          onFloodZoneToggle={setFloodZoneEnabled}
+          femaStructuresEnabled={femaStructuresEnabled}
+          onFemaStructuresToggle={setFemaStructuresEnabled}
+          sloshEnabled={sloshEnabled}
+          onSloshToggle={(category, enabled) =>
+            setSloshEnabled((prev) => ({ ...prev, [category]: enabled }))
+          }
+          mapTypeId={mapTypeId}
+          onMapTypeChange={handleMapTypeChange}
+          isSatelliteView={isSatelliteView}
+          isStreetViewActive={streetViewVisible}
+          overlaysActive={overlaysActive}
+          onRoofAnalysis={openRoofAnalysis}
+          onConstructionAnalysis={openConstructionAnalysis}
+          roofAnalysisActive={roofAnalysisVisible || roofAnalysisOverlay}
+          constructionAnalysisActive={
+            constructionAnalysisVisible || constructionAnalysisOverlay
+          }
+          highResLoading={status === "loading"}
+          highResError={highResErrorMessage}
+        />
+      )}
       <Map
         zoom={mapZoom}
         center={mapCenter}

@@ -21,6 +21,8 @@ export type MapProps = {
   roofAnalysisPanelRef?: RefObject<HTMLDivElement | null>;
   onConstructionAnalysisVisibilityChange?: (visible: boolean) => void;
   constructionAnalysisPanelRef?: RefObject<HTMLDivElement | null>;
+  mapControlsVisible?: boolean;
+  onMapControlsToggle?: () => void;
 }
 
 export type MarkerInfoProps = {
