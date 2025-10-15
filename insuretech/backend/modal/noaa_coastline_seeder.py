@@ -79,6 +79,33 @@ def seed_coastline_file(geojson_filename: str):
     try:
         logger.info(f"Loading {geojson_filename}...")
 
+        # Check if this file has already been loaded
+        logger.info("Connecting to database...")
+        conn = psycopg2.connect(
+            host=os.environ["DB_HOST"],
+            port=os.environ["DB_PORT"],
+            database=os.environ["DB_NAME"],
+            user=os.environ["DB_USER"],
+            password=os.environ["DB_PASSWORD"]
+        )
+
+        cursor = conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM public.noaa_coastline WHERE source = %s", (geojson_filename,))
+        existing_count = cursor.fetchone()[0]
+
+        if existing_count > 0:
+            logger.info(f"SKIP: {geojson_filename} already loaded ({existing_count} points)")
+            cursor.close()
+            conn.close()
+            return {
+                "status": "skipped",
+                "file": geojson_filename,
+                "message": f"Already loaded ({existing_count} points)"
+            }
+
+        cursor.close()
+        conn.close()
+
         with open(geojson_path, 'r') as f:
             data = json.load(f)
 
@@ -90,7 +117,7 @@ def seed_coastline_file(geojson_filename: str):
             if geometry['type'] == 'LineString':
                 for coord in geometry['coordinates']:
                     lng, lat = coord[0], coord[1]
-                    points.append((lat, lng))
+                    points.append((lat, lng, geojson_filename))
 
         logger.info(f"Extracted {len(points)} total points")
 
@@ -116,7 +143,7 @@ def seed_coastline_file(geojson_filename: str):
             batch = points[i:i + batch_size]
             psycopg2.extras.execute_values(
                 cursor,
-                "INSERT INTO public.noaa_coastline (lat, lng) VALUES %s",
+                "INSERT INTO public.noaa_coastline (lat, lng, source) VALUES %s",
                 batch,
                 page_size=1000
             )
@@ -151,5 +178,7 @@ def main(filename: str = "N45W070_coastline.geojson"):
 
     if result["status"] == "success":
         logger.info(f"Successfully inserted {result['points_inserted']} points")
+    elif result["status"] == "skipped":
+        logger.info(f"Skipped: {result.get('message', 'Already loaded')}")
     else:
         logger.error(f"Failed: {result.get('error', 'Unknown error')}")
