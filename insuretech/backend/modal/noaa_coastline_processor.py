@@ -3,11 +3,9 @@ import os
 import logging
 import subprocess
 import tempfile
-from pathlib import Path
 
 STORAGE_ROOT = "/vol"
 RAW_DIR = os.path.join(STORAGE_ROOT, "noaa-shoreline", "raw")
-PROCESSED_DIR = os.path.join(STORAGE_ROOT, "processed")
 GEOJSON_DIR = os.path.join(STORAGE_ROOT, "geojson")
 
 storage = modal.Volume.from_name("noaa-shoreline")
@@ -49,8 +47,6 @@ def run_command(cmd, check=True):
 def process_coastline_zip(zip_filename: str):
     zip_path = os.path.join(RAW_DIR, zip_filename)
     base_name = zip_filename.replace('.zip', '')
-
-    processed_extract_dir = os.path.join(PROCESSED_DIR, base_name)
     geojson_output_path = os.path.join(GEOJSON_DIR, f"{base_name}_coastline.geojson")
 
     if os.path.exists(geojson_output_path):
@@ -90,10 +86,7 @@ def process_coastline_zip(zip_filename: str):
             )
             run_command(cmd)
 
-            os.makedirs(PROCESSED_DIR, exist_ok=True)
             os.makedirs(GEOJSON_DIR, exist_ok=True)
-
-            run_command(f"cp -r {temp_dir}/* '{processed_extract_dir}/'")
             run_command(f"cp '{temp_geojson}' '{geojson_output_path}'")
 
             storage.commit()
@@ -107,8 +100,7 @@ def process_coastline_zip(zip_filename: str):
             return {
                 "file": zip_filename,
                 "status": "success",
-                "geojson": geojson_output_path,
-                "processed_dir": processed_extract_dir
+                "geojson": geojson_output_path
             }
 
         except Exception as e:
