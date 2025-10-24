@@ -89,6 +89,9 @@ def seed_coastline_file(geojson_filename: str):
             password=os.environ["DB_PASSWORD"]
         )
 
+        # Set connection to read-only for this check (read-only is fine here)
+        conn.set_session(readonly=True, autocommit=True)
+
         cursor = conn.cursor()
         cursor.execute("SELECT COUNT(*) FROM public.noaa_coastline WHERE source = %s", (geojson_filename,))
         existing_count = cursor.fetchone()[0]
@@ -133,6 +136,9 @@ def seed_coastline_file(geojson_filename: str):
             password=os.environ["DB_PASSWORD"]
         )
 
+        # Set connection to read-write mode (needed for transaction pooler)
+        conn.set_session(autocommit=False, readonly=False)
+
         cursor = conn.cursor()
 
         logger.info(f"Batch inserting {len(points)} points...")
@@ -168,17 +174,65 @@ def seed_coastline_file(geojson_filename: str):
         return {"status": "failed", "error": str(e)}
 
 
+@app.function(volumes={"/vol": storage})
+def list_geojson_files():
+    """List all GeoJSON files in the volume"""
+    if not os.path.exists(GEOJSON_DIR):
+        return []
+
+    files = [f for f in os.listdir(GEOJSON_DIR) if f.endswith('.geojson')]
+    return sorted(files)
+
+
 @app.local_entrypoint()
-def main(filename: str = "N45W070_coastline.geojson"):
+def main(filename: str = None):
     logger.info(f"--- NOAA Coastline Seeder ---")
-    logger.info(f"Processing: {filename}")
 
-    result = seed_coastline_file.remote(filename)
-    logger.info(f"Result: {result}")
+    if filename:
+        # Process single file
+        logger.info(f"Processing single file: {filename}")
+        result = seed_coastline_file.remote(filename)
+        logger.info(f"Result: {result}")
 
-    if result["status"] == "success":
-        logger.info(f"Successfully inserted {result['points_inserted']} points")
-    elif result["status"] == "skipped":
-        logger.info(f"Skipped: {result.get('message', 'Already loaded')}")
+        if result["status"] == "success":
+            logger.info(f"Successfully inserted {result['points_inserted']} points")
+        elif result["status"] == "skipped":
+            logger.info(f"Skipped: {result.get('message', 'Already loaded')}")
+        else:
+            logger.error(f"Failed: {result.get('error', 'Unknown error')}")
     else:
-        logger.error(f"Failed: {result.get('error', 'Unknown error')}")
+        # Process all files
+        logger.info("Listing all GeoJSON files...")
+        files = list_geojson_files.remote()
+
+        if not files:
+            logger.error("No GeoJSON files found")
+            return
+
+        logger.info(f"Found {len(files)} files to process")
+
+        results = []
+        for i, file in enumerate(files, 1):
+            logger.info(f"[{i}/{len(files)}] Processing {file}...")
+            result = seed_coastline_file.remote(file)
+            results.append(result)
+
+            if result["status"] == "success":
+                logger.info(f"  ✓ Inserted {result['points_inserted']} points")
+            elif result["status"] == "skipped":
+                logger.info(f"  ⊘ {result.get('message', 'Skipped')}")
+            else:
+                logger.error(f"  ✗ {result.get('error', 'Failed')}")
+
+        # Summary
+        success_count = sum(1 for r in results if r['status'] == 'success')
+        skipped_count = sum(1 for r in results if r['status'] == 'skipped')
+        failed_count = sum(1 for r in results if r['status'] == 'failed')
+
+        total_points = sum(r.get('points_inserted', 0) for r in results if r['status'] == 'success')
+
+        logger.info("=" * 60)
+        logger.info("SUMMARY")
+        logger.info(f"Success: {success_count}, Skipped: {skipped_count}, Failed: {failed_count}")
+        logger.info(f"Total points inserted: {total_points:,}")
+        logger.info("=" * 60)
