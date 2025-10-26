@@ -1,0 +1,39 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Blue gradient palette similar to the screenshot */
+  --blue-950: #071634; /* deep navy */
+  --blue-800: #0d2c62;
+  --blue-600: #18479b; /* mid */
+  --blue-400: #4f7dff; /* accent blue */
+  --sky-50:  #eaf3ff;  /* light sky near bottom */
+  --accent:  #d7ff3c;  /* lime/yellow-green CTA */
+}
+
+.hero-gradient {
+  /* Top deep navy → mid blue → light sky near bottom */
+  background: linear-gradient(
+    to bottom,
+    var(--blue-950) 0%,
+    var(--blue-800) 35%,
+    var(--blue-600) 65%,
+    var(--sky-50) 100%
+  );
+}
+
+.text-gradient {
+  background: linear-gradient(90deg, #ffffff, #e6eeff);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.text-accent { color: var(--accent); }
+.bg-accent { background-color: var(--accent); }
+
+/* Smooth fonts */
+html, body { height: 100%; }
+body { background: var(--blue-950); }
+
